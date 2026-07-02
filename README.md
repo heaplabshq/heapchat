@@ -215,6 +215,10 @@ npm run eval          # run the agent eval suite against a fixture KB
 
 `npm run eval` boots a throwaway instance with a fixture knowledge base and runs a set of golden questions through the agent (grounded facts, exact numbers, paraphrases, conflation traps, general-knowledge routing), scoring answers, grounding, and cited sources. Run it after any change to retrieval, memory, prompts, or the agent loop.
 
+## License
+
+Cortex is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free to use, modify, and share for any noncommercial purpose (personal, research, education, nonprofit). Commercial use, including selling it or offering it as part of a paid product or service, is not permitted without a separate license from the author.
+
 ---
 
 Built for people who want an AI that actually knows their files — without sending those files anywhere.

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Cortex — browse a folder like a board and chat with a local Ollama model about any file.",
   "author": "sid7631",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "electron/main.js",
   "type": "commonjs",
   "scripts": {
