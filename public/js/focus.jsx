@@ -14,12 +14,28 @@ const TEXT_EXT = new Set([
 ]);
 const MD_EXT = new Set(["md", "markdown"]);
 
-// fetch-and-show real text/code contents
+// extensions the server will actually accept a save for (src/util/files.js TEXTLIKE) — a strict
+// subset of TEXT_EXT above, which also covers a few formats (scss/less/etc.) that render fine but
+// historically weren't in the write-allowlist. Keep this mirrored with server.js's TEXTLIKE.
+const EDITABLE_EXT = new Set([
+  "txt", "md", "markdown", "csv", "tsv", "json", "xml", "yml", "yaml", "html", "htm",
+  "css", "scss", "less", "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "go", "rs", "java",
+  "rb", "php", "sh", "bash", "zsh", "c", "cpp", "cc", "h", "hpp", "sql", "ini", "toml",
+  "env", "conf", "log", "rtf", "svg", "gitignore",
+]);
+
+// fetch-and-show real text/code contents, with an in-place editor (Edit → textarea → Save)
 function TextPreview({ file }) {
   const [state, setState] = React.useState({ loading: true, text: "", error: null, truncated: false });
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const [saveErr, setSaveErr] = React.useState(null);
+
   React.useEffect(() => {
     let alive = true;
     setState({ loading: true, text: "", error: null, truncated: false });
+    setEditing(false); setSaveErr(null);
     fetch(fileUrl(file.path))
       .then(r => { if (!r.ok) throw new Error("Could not read file"); return r.text(); })
       .then(t => {
@@ -33,22 +49,51 @@ function TextPreview({ file }) {
   }, [file.id]);
 
   const isMd = MD_EXT.has(file.ext);
+  const canEdit = EDITABLE_EXT.has(file.ext) && !state.truncated;
+
+  function startEdit() { setDraft(state.text); setSaveErr(null); setEditing(true); }
+  async function save() {
+    setSaving(true); setSaveErr(null);
+    const r = await fetch("/api/file", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: file.path, content: draft }) })
+      .then(r => r.json()).catch(() => null);
+    setSaving(false);
+    if (r && r.ok) { setState(s => ({ ...s, text: draft })); setEditing(false); }
+    else setSaveErr((r && r.error) || "Could not save — try again.");
+  }
 
   return (
     <div className="preview preview-doc scroll">
       <div className="doc-sheet" style={{ maxWidth: isMd ? 720 : 860 }}>
+        {!state.loading && !state.error && (
+          <div className="row gap-2" style={{ marginBottom: 12, justifyContent: "flex-end" }}>
+            {editing ? (
+              <>
+                {saveErr && <span className="t-xs" style={{ color: "var(--warn)", marginRight: "auto" }}>{saveErr}</span>}
+                <button className="btn sm" onClick={() => { setEditing(false); setSaveErr(null); }} disabled={saving}>Cancel</button>
+                <button className="btn sm primary" onClick={save} disabled={saving || draft === state.text}>{saving ? <><span className="spin-mini" /> Saving…</> : "Save"}</button>
+              </>
+            ) : canEdit ? (
+              <button className="btn sm" onClick={startEdit}><Icon name="edit" size={13} /> Edit</button>
+            ) : state.truncated ? (
+              <span className="t-xs ink-3" title="Files over 300 KB can't be edited here yet">Too large to edit here</span>
+            ) : null}
+          </div>
+        )}
         {state.loading ? (
           <div className="col center" style={{ padding: 40, color: "var(--ink-3)" }}>
             <span className="dots"><span /><span /><span /></span>
           </div>
         ) : state.error ? (
           <div className="callout warn"><Icon name="alert" size={16} /><span>{state.error}</span></div>
+        ) : editing ? (
+          <textarea className="textarea mono" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
+            style={{ width: "100%", minHeight: 420, fontSize: 12.5, lineHeight: 1.6, resize: "vertical" }} />
         ) : isMd ? (
           fmt(state.text)
         ) : (
           <pre className="codeblock"><code>{state.text}</code></pre>
         )}
-        {state.truncated && (
+        {state.truncated && !editing && (
           <div className="row gap-2" style={{ marginTop: 14, color: "var(--ink-3)" }}>
             <Icon name="info" size={14} /> <span className="t-xs">Showing the first 300 KB — open or download for the full file.</span>
           </div>

@@ -383,6 +383,26 @@ app.get("/api/file", (req, res) => {
   }
 });
 
+// save edits from the in-app text/code/markdown editor (focus view). Text-like files only —
+// same TEXTLIKE allowlist manage_file's overwrite action already trusts. Overwrites directly (no
+// approval-card flow here — that's the chat path; clicking Save in the editor IS the confirmation).
+app.put("/api/file", async (req, res) => {
+  try {
+    const full = path.resolve(String((req.body || {}).path || ""));
+    if (!canAccessPath(req.user, full)) return res.status(403).json({ error: "No access to that file." });
+    if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return res.status(404).json({ error: "File not found." });
+    if (!TEXTLIKE.has(extOf(full))) return res.status(400).json({ error: "Only text/code/markdown files can be edited here." });
+    const content = String((req.body || {}).content ?? "");
+    await fsp.writeFile(full, content);
+    await buildIndex(path.dirname(full));   // keep RAG/search current for this folder
+    const kb = kbDirFor(req.user);
+    if (full.startsWith(kb + path.sep)) { try { await buildIndex(kb); } catch {} }   // KB copies are indexed separately from their folder
+    res.json({ ok: true, size: fmtSize(Buffer.byteLength(content)) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* ---------------- thumbnails — resized once per (file, mtime, width), cached forever ---------------- */
 const THUMBS_DIR = path.join(DATA_DIR, "thumbs");
 let thumbActive = 0; const thumbWaiters = [];   // cap concurrent decodes so a gallery load doesn't pin the CPU

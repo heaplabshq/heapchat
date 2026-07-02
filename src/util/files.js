@@ -10,9 +10,10 @@ const EXT = {
         "ts", "tsx", "py", "go", "rs", "java", "rb", "php", "sh", "c", "cpp", "h", "log"],
 };
 const TEXTLIKE = new Set([
-  "txt", "md", "markdown", "csv", "json", "xml", "yml", "yaml", "html", "htm",
-  "css", "js", "jsx", "ts", "tsx", "py", "go", "rs", "java", "rb", "php", "sh",
-  "c", "cpp", "h", "log", "rtf", "svg",
+  "txt", "md", "markdown", "csv", "tsv", "json", "xml", "yml", "yaml", "html", "htm",
+  "css", "scss", "less", "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "go", "rs", "java",
+  "rb", "php", "sh", "bash", "zsh", "c", "cpp", "cc", "h", "hpp", "sql", "ini", "toml",
+  "env", "conf", "log", "rtf", "svg", "gitignore",
 ]);
 const MIME = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
