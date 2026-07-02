@@ -19,8 +19,7 @@ const { Jimp } = require("jimp");       // pixel access for perceptual image has
 
 /* ---- extracted modules (see SERVER-REFACTOR-PLAN.md) — re-bound into local scope
    so existing call sites are unchanged ---- */
-const { DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE,
-  NVIDIA_API_KEY, NVIDIA_MODELS, NVIDIA_AGENT_MODEL } = require("./src/config");
+const { DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE } = require("./src/config");
 const { writeJSONAtomic } = require("./src/util/json-store");
 const { TEXTLIKE, MIME, DESCRIBABLE_IMG, extOf, kindOf, fmtSize, fmtDate, isImageFile, safeName } = require("./src/util/files");
 const { buildProvenance } = require("./src/util/text");
@@ -28,6 +27,7 @@ const { wantsVisual } = require("./src/media/render");
 const {  } = require("./src/web/search");
 const { imageMeta, persistImageMeta, tagStore, persistTags, getTags, setTags, pdfOcrStore, persistPdfOcr, phashStore, persistPhash, geoStore, persistGeo, faceStore, persistFaces, entityStore, persistEntities, placeNames, persistPlaceNames } = require("./src/state/sidecars");
 const { USERS_DIR, userStores, storesFor, kbDirFor, projectKbDirFor, isKbDir } = require("./src/state/user-stores");
+const serverSettings = require("./src/state/server-settings");
 const { users, authSessions, persistUsers, persistAuthSessions, newToken, hashPassword, verifyPassword, publicUser, cleanFolders, createUser, parseCookies, userFromRequest, startSession, migrateLegacyData } = require("./src/auth/accounts");
 const { grantedRoots, canAccessPath, guardPath, accessibleOnly, realResolve } = require("./src/auth/access");
 const { authWall, requireAdmin } = require("./src/auth/middleware");
@@ -198,8 +198,8 @@ app.get("/api/config", (req, res) => {
     role: req.user.role,
     userId: req.user.id,
     folders: req.user.folders || [],
-    nvidiaEnabled: !!NVIDIA_API_KEY,
-    nvidiaAgentModel: NVIDIA_API_KEY ? "nvidia/" + NVIDIA_AGENT_MODEL : "",
+    nvidiaEnabled: serverSettings.getNvidiaConfig().enabled,
+    nvidiaAgentModel: serverSettings.getNvidiaConfig().enabled ? "nvidia/" + serverSettings.getNvidiaConfig().agentModel : "",
   });
 });
 
@@ -1549,18 +1549,42 @@ app.post("/api/mcp/:id/test", async (req, res) => {
 });
 
 /* ---------------- admin / management ---------------- */
-// network access: read + toggle the bind address live (no restart)
+// mask a secret for display: enough to recognize it, never enough to reuse ("nvapi-ab••••wxyz")
+function maskSecret(s) {
+  if (!s || s.length < 10) return s ? "••••" : "";
+  return s.slice(0, 6) + "••••" + s.slice(-4);
+}
+// network access: read + toggle the bind address live (no restart). Also the NVIDIA provider's
+// API key/base URL/model allowlist — admin-only, server-side, never echoed back raw (see
+// maskSecret above) and never settable by anyone but an admin (src/state/server-settings.js).
 app.get("/api/admin/server", (req, res) => {
   if (!requireAdmin(req, res)) return;
-  res.json({ lanAccess: !!serverCfg.lanAccess, urls: serverCfg.lanAccess ? lanUrls() : [], port: PORT });
+  const scfg = serverSettings.get();
+  const nv = serverSettings.getNvidiaConfig();
+  res.json({
+    lanAccess: !!scfg.lanAccess, urls: scfg.lanAccess ? lanUrls() : [], port: PORT,
+    nvidia: { configured: nv.enabled, keyPreview: maskSecret(nv.apiKey), baseUrl: nv.baseUrl, models: nv.models, agentModel: nv.agentModel },
+  });
 });
 app.put("/api/admin/server", (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const want = !!(req.body || {}).lanAccess;
-  const changed = want !== !!serverCfg.lanAccess;
-  serverCfg.lanAccess = want;
-  try { writeJSONAtomic(SERVER_CFG_FILE, serverCfg); } catch {}
-  res.json({ lanAccess: want, urls: want ? lanUrls() : [], rebinding: changed });
+  const b = req.body || {};
+  const scfg = serverSettings.get();
+  const want = b.lanAccess !== undefined ? !!b.lanAccess : !!scfg.lanAccess;
+  const changed = want !== !!scfg.lanAccess;
+  const patch = { lanAccess: want };
+  // NVIDIA fields: only touch what's actually sent, so saving lanAccess alone never wipes the key.
+  // An explicit empty string clears that field back to the .env default (or off, for the key).
+  if (b.nvidiaApiKey !== undefined) patch.nvidiaApiKey = String(b.nvidiaApiKey).trim();
+  if (b.nvidiaBaseUrl !== undefined) patch.nvidiaBaseUrl = String(b.nvidiaBaseUrl).trim();
+  if (b.nvidiaAgentModel !== undefined) patch.nvidiaAgentModel = String(b.nvidiaAgentModel).trim();
+  if (b.nvidiaModels !== undefined) patch.nvidiaModels = String(b.nvidiaModels).split(",").map(s => s.trim()).filter(Boolean);
+  serverSettings.update(patch);
+  const nv = serverSettings.getNvidiaConfig();
+  res.json({
+    lanAccess: want, urls: want ? lanUrls() : [], rebinding: changed,
+    nvidia: { configured: nv.enabled, keyPreview: maskSecret(nv.apiKey), baseUrl: nv.baseUrl, models: nv.models, agentModel: nv.agentModel },
+  });
   if (!changed) return;
   setTimeout(() => {   // after the response flushes: release the listener, rebind on the new interface
     const old = httpServer;
@@ -2402,7 +2426,8 @@ app.post("/api/chat", async (req, res) => {
 /* ---------------- list installed Ollama models (+ the admin's NVIDIA allowlist, if configured) ---------------- */
 app.get("/api/models", async (_req, res) => {
   // NVIDIA models are addressed as "nvidia/<real-id>" everywhere in the app — see src/llm/router.js
-  const nvidiaModels = NVIDIA_API_KEY ? NVIDIA_MODELS.map(m => "nvidia/" + m) : [];
+  const nv = serverSettings.getNvidiaConfig();
+  const nvidiaModels = nv.enabled ? nv.models.map(m => "nvidia/" + m) : [];
   try {
     const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
     const j = await r.json();
@@ -2510,10 +2535,6 @@ app.get("*", (req, res, next) => {
 });
 
 /* ---------------- network access: admin-toggleable bind (data/server.json) ---------------- */
-const SERVER_CFG_FILE = path.join(DATA_DIR, "server.json");
-let serverCfg = null;
-try { serverCfg = JSON.parse(fs.readFileSync(SERVER_CFG_FILE, "utf8")); } catch {}
-if (!serverCfg || typeof serverCfg.lanAccess !== "boolean") serverCfg = { lanAccess: HOST !== "127.0.0.1" && HOST !== "localhost" };
 function lanUrls() {
   const out = [];
   for (const ifs of Object.values(os.networkInterfaces()))
@@ -2522,12 +2543,14 @@ function lanUrls() {
 }
 let httpServer = null;
 function bindServer() {
-  const host = serverCfg.lanAccess ? "0.0.0.0" : "127.0.0.1";
+  const host = serverSettings.get().lanAccess ? "0.0.0.0" : "127.0.0.1";
   httpServer = app.listen(PORT, host, () => {
     console.log(`\n  Cortex running →  http://localhost:${PORT}`);
-    if (serverCfg.lanAccess) lanUrls().forEach(u => console.log(`  On your network →  ${u}`));
+    if (serverSettings.get().lanAccess) lanUrls().forEach(u => console.log(`  On your network →  ${u}`));
     console.log(`  Ollama:  ${OLLAMA_URL}`);
     console.log(`  Model:   ${OLLAMA_MODEL}\n`);
+    const nv = serverSettings.getNvidiaConfig();
+    if (nv.enabled) console.log(`  NVIDIA:  enabled (${nv.models.join(", ")})\n`);
   });
 }
 bindServer();

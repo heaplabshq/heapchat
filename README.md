@@ -177,17 +177,19 @@ HOST=127.0.0.1
 
 ### Optional: NVIDIA as a second provider
 
-Cortex can also talk to [NVIDIA's OpenAI-compatible API](https://integrate.api.nvidia.com) alongside Ollama — full agent and tool-calling support, not just plain chat. It's entirely opt-in and admin-configured:
+Cortex can also talk to [NVIDIA's OpenAI-compatible API](https://integrate.api.nvidia.com) alongside Ollama — full agent + tool-calling support everywhere a model is selectable, including deep research and the deep-work multi-agent roster, not just plain chat.
+
+It's entirely opt-in, admin-only, and configurable straight from the app — **Settings → Account & users → NVIDIA** (visible to admins), no `.env` editing or restart required. Paste an API key from [build.nvidia.com](https://build.nvidia.com) and a comma-separated model allowlist; it takes effect immediately. The key is stored server-side and masked everywhere it's displayed — it's never sent to or readable from a non-admin browser session, and never overridable on a per-request basis by any user, admin or not.
+
+If you'd rather set it via `.env` (e.g. for a first boot before an admin logs in), that works too — the app UI takes precedence once set, `.env` is just the fallback default:
 
 ```
 NVIDIA_API_KEY=nvapi-...
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 NVIDIA_MODELS=z-ai/glm-5.2
-NVIDIA_MODEL=z-ai/glm-5.2
-NVIDIA_AGENT_MODEL=z-ai/glm-5.2
 ```
 
-Leave `NVIDIA_API_KEY` unset (the default) and nothing changes — no NVIDIA models appear anywhere and no network calls are made toward NVIDIA. Once set, `NVIDIA_MODELS` (comma-separated) controls exactly which model ids show up in every model picker, prefixed `nvidia/` to distinguish them from local Ollama models. The API key lives in `.env` only — it's never sent to or settable from the browser, and can't be overridden on a per-request basis by any user, admin or not.
+Leave `NVIDIA_API_KEY` unset everywhere (the default) and nothing changes — no NVIDIA models appear anywhere and no network calls are made toward NVIDIA. Once configured (either way), the allowlisted model ids show up in every model picker, prefixed `nvidia/` to distinguish them from local Ollama models.
 
 ## Accounts & multi-tenant
 

@@ -3,15 +3,20 @@
    streamChatTurn for the main agent loop's streaming + tool-calling turns — normalized to the
    exact same { content, toolCalls, thinking, doneReason } contract callModel() already returns
    for Ollama, so the rest of the agent loop doesn't need to know which provider answered. */
-const { NVIDIA_API_KEY, NVIDIA_BASE_URL } = require("../config");
 const { stripThink } = require("../util/text");
+const serverSettings = require("../state/server-settings");
 
-let client = null;
+// cache the client, but re-create it if the admin changes the key/URL live from Settings —
+// no server restart needed for that to take effect.
+let client = null, clientKey = "";
 function getClient() {
-  if (!NVIDIA_API_KEY) throw new Error("NVIDIA_API_KEY is not configured");
-  if (!client) {
+  const { apiKey, baseUrl } = serverSettings.getNvidiaConfig();
+  if (!apiKey) throw new Error("NVIDIA_API_KEY is not configured");
+  const cacheKey = apiKey + "|" + baseUrl;
+  if (!client || clientKey !== cacheKey) {
     const OpenAI = require("openai");
-    client = new OpenAI({ apiKey: NVIDIA_API_KEY, baseURL: NVIDIA_BASE_URL });
+    client = new OpenAI({ apiKey, baseURL: baseUrl });
+    clientKey = cacheKey;
   }
   return client;
 }
@@ -75,4 +80,18 @@ async function streamChatTurn({ model, messages, tools, temperature, maxTokens, 
   return { content, toolCalls, thinking, doneReason };
 }
 
-module.exports = { completeJSON, completeText, streamChatTurn };
+// Non-streaming turn with optional tool-calling — for the deep-work roster's per-specialist turns
+// (runAgentTurn in core.js), which call Ollama non-streaming today (stream:false) too, so this is
+// a like-for-like swap, not a UX regression. Same normalized { content, toolCalls } shape as
+// streamChatTurn, minus the streaming-only fields.
+async function completeWithTools({ model, messages, tools, temperature, maxTokens }) {
+  const r = await getClient().chat.completions.create({
+    model, messages, temperature, max_tokens: maxTokens,
+    ...(tools && tools.length ? { tools } : {}),
+  });
+  const m = (r.choices[0] && r.choices[0].message) || {};
+  const toolCalls = (m.tool_calls || []).map(tc => ({ id: tc.id, type: "function", function: { name: tc.function.name, arguments: tc.function.arguments } }));
+  return { content: stripThink(m.content || ""), toolCalls };
+}
+
+module.exports = { completeJSON, completeText, streamChatTurn, completeWithTools };
