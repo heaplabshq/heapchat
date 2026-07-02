@@ -19,8 +19,28 @@ It ships as both a desktop app (Electron, macOS/Windows) and a self-hosted web s
 
 ---
 
+## How Cortex compares
+
+Cortex isn't trying to be a smaller ChatGPT — it's built around a different premise: **the AI lives with your files, permanently, instead of visiting them one upload at a time.**
+
+| | ChatGPT / Claude | Open WebUI | Cortex |
+|---|---|---|---|
+| Runs fully offline / local-only | No | Yes | **Yes** |
+| Memory that reflects, decays, and learns a profile of you | Shallow flat facts | No | **Yes** — typed memory, episodic reflection, auto-built profile |
+| Knowledge graph over your own files | No | No | **Yes** — people, places, tags, and documents fused, LLM-free |
+| Photo-native (face recognition, geotag map, visual dedup) | No | No | **Yes** |
+| Local image generation tied into chat | Hosted API only | No | **Yes** — via Draw Things, fully offline |
+| Multi-user with server-enforced, per-folder access control | N/A (single-user) | Yes | **Yes** |
+| Background agent jobs on a schedule | No | No | **Yes** — digests to feed/note/notification |
+| MCP client *and* server | Varies | Client only | **Both** |
+
+Where Cortex is still catching up: it doesn't yet have voice conversation, a split-pane editable canvas, or a mobile-first layout — all real gaps against the hosted apps, tracked openly rather than glossed over. What it trades those for is an AI that actually accumulates context about your files and you, permanently, without any of it leaving your machine.
+
+---
+
 ## Table of contents
 
+- [How Cortex compares](#how-cortex-compares)
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Desktop app](#desktop-app)
