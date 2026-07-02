@@ -356,18 +356,26 @@ const TOOL_REGISTRY = {
   save_note: {
     def: { type: "function", function: {
       name: "save_note",
-      description: "Save a note, summary, or answer into the knowledge base as a Markdown file so it's kept and searchable later. Use when the user asks to save, remember, note, jot down, or take notes on something.",
+      description: "Save a note, summary, answer, or generated data into the knowledge base so it's kept and searchable later. Use when the user asks to save, remember, note, jot down, or take notes on something. Defaults to a Markdown note; if `title` ends in .csv/.json/.txt AND `text` is actually in that format, it's saved as a real file of that type (raw, not wrapped in Markdown) so tools like query_csv can use it and it shows with the right file type.",
       parameters: { type: "object", properties: {
-        title: { type: "string" },
-        text: { type: "string", description: "The note body in Markdown. Write it in full and well-structured — a short intro, ## sections, bullet/numbered lists, the key facts, decisions, names, numbers and their sources, and a closing summary or action items. Be thorough, not a one-liner." },
-        images: { type: "array", items: { type: "string" }, description: "Filenames of conversation images to embed in the note, or [\"all\"] for every image in the chat." },
+        title: { type: "string", description: "The note's title. Give it a .csv/.json/.txt extension ONLY if `text` is genuinely raw data in that format — otherwise leave it as a plain title and it's saved as a Markdown note." },
+        text: { type: "string", description: "The content. For a Markdown note: written in full and well-structured — a short intro, ## sections, bullet/numbered lists, the key facts, decisions, names, numbers and their sources, and a closing summary or action items. Be thorough, not a one-liner. For .csv/.json/.txt: the raw file content, nothing else." },
+        images: { type: "array", items: { type: "string" }, description: "Filenames of conversation images to embed in the note, or [\"all\"] for every image in the chat. Markdown notes only." },
       }, required: ["title", "text"] },
     } },
     run: async (args, ctx) => {
       const kb = ctx.kbDir;
-      const base = safeName(String(args.title || "note")).replace(/\.md$/i, "") || "note";
-      let p = path.join(kb, base + ".md"), i = 1;
-      while (fs.existsSync(p)) { p = path.join(kb, `${base} (${i}).md`); i++; }
+      const rawTitle = String(args.title || "note");
+      const dataExt = (rawTitle.match(/\.(csv|json|txt)$/i) || [])[1];
+      const ext = dataExt ? dataExt.toLowerCase() : "md";
+      const base = safeName(rawTitle).replace(/\.[a-z0-9]{1,8}$/i, "") || "note";   // strip ANY existing extension — never double it up (was producing "name.csv.md")
+      let p = path.join(kb, `${base}.${ext}`), i = 1;
+      while (fs.existsSync(p)) { p = path.join(kb, `${base} (${i}).${ext}`); i++; }
+      if (ext !== "md") {   // raw data file — no title-wrapping, images don't apply
+        await fsp.writeFile(p, args.text || "");
+        await buildIndex(kb);
+        return { result: `Saved "${path.basename(p)}" to the knowledge base.`, summary: `saved ${path.basename(p)}`, sources: [{ name: path.basename(p), path: p, score: 1 }] };
+      }
       // embed conversation images the agent asked for (matched by filename, or "all")
       const avail = ctx.convoImages || [];
       const want = (Array.isArray(args.images) ? args.images : []).map(s => String(s).toLowerCase().trim()).filter(Boolean);
