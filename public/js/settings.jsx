@@ -260,9 +260,7 @@ function AccountSection({ account }) {
   const [showToken, setShowToken] = React.useState(false);
   const [msg, setMsg] = React.useState(null);
   const [grantDraft, setGrantDraft] = React.useState({ id: null, value: "" });   // folder-grant input per user
-  const [net, setNet] = React.useState(null);   // { lanAccess, urls, nvidia } — admin network + NVIDIA provider config
-  const [nvForm, setNvForm] = React.useState({ apiKey: "", models: "" });   // draft edits before Save
-  const [nvEditing, setNvEditing] = React.useState(false);
+  const [net, setNet] = React.useState(null);   // { lanAccess, urls } — admin network toggle
   function note(m) { setMsg(m); setTimeout(() => setMsg(null), 2500); }
   function loadUsers() { fetch("/api/users").then(r => r.json()).then(j => setList(j.users || [])).catch(() => {}); }
   React.useEffect(() => {
@@ -274,23 +272,6 @@ function AccountSection({ account }) {
     const r = await fetch("/api/admin/server", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lanAccess: !(net && net.lanAccess) }) }).then(r => r.json()).catch(() => null);
     if (r) { setNet(r); note(r.lanAccess ? "Network access on" : "Network access off"); }
   }
-  function openNvEditor() {
-    setNvForm({ apiKey: "", models: (net && net.nvidia && net.nvidia.models || []).join(", ") });
-    setNvEditing(true);
-  }
-  async function saveNvidia() {
-    const body = { nvidiaModels: nvForm.models };
-    if (nvForm.apiKey.trim()) body.nvidiaApiKey = nvForm.apiKey.trim();   // blank = leave the existing key untouched
-    const r = await fetch("/api/admin/server", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => null);
-    if (r) { setNet(r); setNvEditing(false); note(r.nvidia.configured ? "NVIDIA connected" : "NVIDIA settings saved"); }
-    else note("Could not save — check the key and try again");
-  }
-  async function removeNvidia() {
-    if (!window.confirm("Remove the NVIDIA API key? NVIDIA models will disappear from every picker until it's set again.")) return;
-    const r = await fetch("/api/admin/server", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nvidiaApiKey: "" }) }).then(r => r.json()).catch(() => null);
-    if (r) { setNet(r); note("NVIDIA key removed"); }
-  }
-
   async function addUser() {
     const r = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) }).then(r => r.json()).catch(() => null);
     if (r && r.id) { setForm({ username: "", name: "", password: "", role: "user" }); loadUsers(); note(`Added ${r.username}`); }
@@ -376,38 +357,6 @@ function AccountSection({ account }) {
               </div>
               <button className={"toggle" + (net && net.lanAccess ? " on" : "")} onClick={toggleLan} aria-label="Toggle network access" />
             </div>
-          </div>
-
-          <div className="field" style={{ marginTop: 14 }}>
-            <span className="field-label">NVIDIA (optional second provider)</span>
-            {!nvEditing ? (
-              <div className="row-set">
-                <div className="col" style={{ gap: 3, minWidth: 0 }}>
-                  {net && net.nvidia && net.nvidia.configured ? (
-                    <>
-                      <span className="t-sm semi" style={{ color: "var(--good)" }}>Connected <span className="mono ink-3" style={{ fontWeight: 400 }}>{net.nvidia.keyPreview}</span></span>
-                      <span className="field-hint">Models: <span className="mono">{net.nvidia.models.join(", ")}</span></span>
-                    </>
-                  ) : (
-                    <span className="field-hint">Not configured — add your NVIDIA API key to enable NVIDIA models in every model picker, with full agent + tool-calling support.</span>
-                  )}
-                </div>
-                <button className="btn sm" onClick={openNvEditor}>{net && net.nvidia && net.nvidia.configured ? "Update" : "Add key"}</button>
-                {net && net.nvidia && net.nvidia.configured && <button className="btn sm" style={{ color: "var(--warn)" }} onClick={removeNvidia}>Remove</button>}
-              </div>
-            ) : (
-              <div className="col" style={{ gap: 8 }}>
-                <input className="input mono" type="password" placeholder={net && net.nvidia && net.nvidia.configured ? "Leave blank to keep the current key" : "nvapi-..."}
-                  value={nvForm.apiKey} onChange={e => setNvForm(f => ({ ...f, apiKey: e.target.value }))} />
-                <input className="input mono" placeholder="Model ids, comma-separated (e.g. z-ai/glm-5.2)"
-                  value={nvForm.models} onChange={e => setNvForm(f => ({ ...f, models: e.target.value }))} />
-                <span className="field-hint">Base URL is fixed to <span className="mono">{(net && net.nvidia && net.nvidia.baseUrl) || "https://integrate.api.nvidia.com/v1"}</span>. Get a key at <span className="mono">build.nvidia.com</span>.</span>
-                <div className="row gap-2">
-                  <button className="btn sm primary" disabled={!nvForm.apiKey.trim() && !(net && net.nvidia && net.nvidia.configured)} onClick={saveNvidia}>Save</button>
-                  <button className="btn sm" onClick={() => setNvEditing(false)}>Cancel</button>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="field" style={{ marginTop: 14 }}>
@@ -585,6 +534,88 @@ function ImageGenSection({ settings, set }) {
   );
 }
 
+// the "NVIDIA" segmented button in Model → Providers — clicking it (admin only) opens an inline
+// key/model editor right there, instead of sending the admin hunting through a different section.
+function NvidiaProviderField({ account, nvidiaEnabled }) {
+  const isAdmin = account && account.role === "admin";
+  const [open, setOpen] = React.useState(false);
+  const [net, setNet] = React.useState(null);       // full GET /api/admin/server payload, fetched lazily on first open
+  const [form, setForm] = React.useState({ apiKey: "", models: "" });
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState(null);
+  function note(m) { setMsg(m); setTimeout(() => setMsg(null), 2500); }
+
+  function toggleOpen() {
+    if (!isAdmin) return;
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (!net) fetch("/api/admin/server").then(r => r.json()).then(j => { setNet(j); setForm({ apiKey: "", models: (j.nvidia && j.nvidia.models || []).join(", ") }); }).catch(() => {});
+  }
+  async function save() {
+    setBusy(true);
+    const body = { nvidiaModels: form.models };
+    if (form.apiKey.trim()) body.nvidiaApiKey = form.apiKey.trim();   // blank = leave the existing key untouched
+    const r = await fetch("/api/admin/server", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => null);
+    setBusy(false);
+    if (r) { setNet(r); setForm(f => ({ ...f, apiKey: "" })); note(r.nvidia.configured ? "NVIDIA connected — reload to see it everywhere" : "Saved"); }
+    else note("Could not save — check the key and try again");
+  }
+  async function remove() {
+    if (!window.confirm("Remove the NVIDIA API key? NVIDIA models will disappear from every picker until it's set again.")) return;
+    setBusy(true);
+    const r = await fetch("/api/admin/server", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nvidiaApiKey: "" }) }).then(r => r.json()).catch(() => null);
+    setBusy(false);
+    if (r) { setNet(r); note("NVIDIA key removed"); }
+  }
+
+  const configured = net ? net.nvidia.configured : nvidiaEnabled;   // best guess before the admin payload loads
+  return (
+    <>
+      <div className="seg">
+        <button className="on">Ollama <span style={{ opacity: .55, fontWeight: 600 }}>· local</span></button>
+        <button className={configured ? "on" : ""} disabled={!isAdmin} onClick={toggleOpen}
+          title={isAdmin ? (open ? "Close" : "Click to configure") : "Admin only"} style={!isAdmin ? { opacity: .45 } : undefined}>
+          NVIDIA <span style={{ opacity: .55, fontWeight: 600 }}>{configured ? "· cloud" : "· not configured"}</span>
+          {isAdmin && <Icon name={open ? "chevD" : "chevR"} size={11} style={{ marginLeft: 4, opacity: .6 }} />}
+        </button>
+      </div>
+
+      {!isAdmin && (
+        <span className="field-hint">{nvidiaEnabled
+          ? <>NVIDIA models appear in the model pickers below, prefixed <span className="mono">nvidia/</span>.</>
+          : <>Ask an admin to add an NVIDIA API key here to enable it.</>}</span>
+      )}
+
+      {isAdmin && !open && (
+        <span className="field-hint">{configured ? "Connected. Click NVIDIA above to update the key or model list." : "Click NVIDIA above to add your API key and enable it."}</span>
+      )}
+
+      {isAdmin && open && (
+        <div className="col" style={{ gap: 8, marginTop: 8, padding: 12, border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface-2)" }}>
+          {net ? (
+            <>
+              {net.nvidia.configured && (
+                <span className="t-sm semi" style={{ color: "var(--good)" }}>Connected <span className="mono ink-3" style={{ fontWeight: 400 }}>{net.nvidia.keyPreview}</span></span>
+              )}
+              <input className="input mono" type="password" placeholder={net.nvidia.configured ? "Leave blank to keep the current key" : "nvapi-..."}
+                value={form.apiKey} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} />
+              <input className="input mono" placeholder="Model ids, comma-separated (e.g. z-ai/glm-5.2)"
+                value={form.models} onChange={e => setForm(f => ({ ...f, models: e.target.value }))} />
+              <span className="field-hint">Base URL is fixed to <span className="mono">{net.nvidia.baseUrl}</span>. Get a key at <span className="mono">build.nvidia.com</span>.</span>
+              <div className="row gap-2">
+                <button className="btn sm primary" disabled={busy || (!form.apiKey.trim() && !net.nvidia.configured)} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+                <button className="btn sm" onClick={() => setOpen(false)}>Cancel</button>
+                {net.nvidia.configured && <button className="btn sm" style={{ color: "var(--warn)", marginLeft: "auto" }} onClick={remove} disabled={busy}>Remove</button>}
+              </div>
+            </>
+          ) : <span className="t-sm ink-3">Loading…</span>}
+        </div>
+      )}
+      {msg && <span className="field-hint" style={{ color: "var(--accent)" }}>{msg}</span>}
+    </>
+  );
+}
+
 function SettingsPage({ settings, set, onSave, onReset, online, models, account, nvidiaEnabled }) {
   return (
     <div className="settings-scroll scroll">
@@ -601,19 +632,7 @@ function SettingsPage({ settings, set, onSave, onReset, online, models, account,
 
           <div className="field">
             <span className="field-label">Providers</span>
-            <div className="seg">
-              <button className="on">Ollama <span style={{ opacity: .55, fontWeight: 600 }}>· local</span></button>
-              {nvidiaEnabled
-                ? <button className="on">NVIDIA <span style={{ opacity: .55, fontWeight: 600 }}>· cloud</span></button>
-                : <button disabled style={{ opacity: .45 }}>NVIDIA <span style={{ opacity: .7, fontWeight: 600 }}>· not configured</span></button>}
-            </div>
-            {nvidiaEnabled ? (
-              <span className="field-hint">NVIDIA models appear in the model pickers below, prefixed <span className="mono">nvidia/</span>. The API key is admin-configured — it's never sent to or editable from a non-admin browser session.</span>
-            ) : account && account.role === "admin" ? (
-              <span className="field-hint">Add your NVIDIA API key below, under Account &amp; users → NVIDIA, to enable it.</span>
-            ) : (
-              <span className="field-hint">Ask an admin to add an NVIDIA API key in Settings → Account &amp; users to enable it.</span>
-            )}
+            <NvidiaProviderField account={account} nvidiaEnabled={nvidiaEnabled} />
           </div>
 
           <div className="field">
