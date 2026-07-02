@@ -1,0 +1,13 @@
+node_modules/
+*.log
+.DS_Store
+data/
+eval/results/
+.env
+
+# Electron build output
+dist/
+
+# Built frontend bundle (generated from public/js/*.jsx by build/esbuild.mjs)
+public/app.js
+public/app.js.map
