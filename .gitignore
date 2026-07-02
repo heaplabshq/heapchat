@@ -5,6 +5,19 @@ data/
 eval/results/
 .env
 
+# internal planning docs — kept locally, not published to origin
+/AGENT-MEMORY.md
+/DESIGN-SYSTEM.md
+/FEATURE-COMPARISON.md
+/LEARNING-LOOP-PLAN.md
+/PENDING.md
+/PEOPLE-ALBUMS-PLAN.md
+/RENAME.md
+/ROADMAP.md
+/SERVER-REFACTOR-PLAN.md
+/UI-REFACTOR-PLAN.md
+/UI-SMOKE.md
+
 # Electron build output
 dist/
 
