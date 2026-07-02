@@ -13,6 +13,12 @@ import { AgentPicker } from "./agents.jsx";
    are threaded down as props. A later step could move that state into Composer
    and expose a single onSend callback. */
 
+// "nvidia/z-ai/glm-5.2" -> "z-ai/glm-5.2 · NVIDIA" — the "nvidia/" prefix is an internal
+// routing marker (see src/llm/router.js), not part of the real model id, so hide it from users.
+function modelLabel(m) {
+  return m && m.startsWith("nvidia/") ? m.slice("nvidia/".length) + " · NVIDIA" : m;
+}
+
 // context-fill meter: a small donut showing how full the model's context window is. Turns amber near
 // the limit; past 100% the server auto-summarizes older turns. Click it for a used/available/total
 // breakdown. `real` = the numbers are actual prompt tokens from the server (vs a pre-first-turn estimate).
@@ -222,7 +228,7 @@ function Composer({
           <div className="dropdown" style={{ position: "relative" }}>
             <button className="model-pick" onClick={() => setModelOpen(o => !o)} title="Switch model for this chat">
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: online ? "var(--good)" : "var(--ink-4)", flexShrink: 0 }} />
-              <span className="mono semi truncate model-pick-name">{effectiveModel}</span>
+              <span className="mono semi truncate model-pick-name">{modelLabel(effectiveModel)}</span>
               {modelOverride && <span className="model-pick-badge">custom</span>}
               <Icon name="chevD" size={12} style={{ color: "var(--ink-3)" }} />
             </button>
@@ -233,13 +239,13 @@ function Composer({
                 {modelOverride && (
                   <div className="dd-item" onClick={() => { setModelOverride(null); setModelOpen(false); }}>
                     <Icon name="refresh" size={14} style={{ color: "var(--ink-3)" }} />
-                    <span style={{ fontSize: 12.5 }}>Use default (<span className="mono">{defaultModel}</span>)</span>
+                    <span style={{ fontSize: 12.5 }}>Use default (<span className="mono">{modelLabel(defaultModel)}</span>)</span>
                   </div>
                 )}
                 {(models.length ? models : [effectiveModel]).map(m => (
                   <div key={m} className={"dd-item" + (m === effectiveModel ? " on" : "")} onClick={() => { setModelOverride(m); setModelOpen(false); }}>
-                    <Icon name="bolt" size={14} style={{ color: m === effectiveModel ? "var(--accent)" : "var(--ink-3)" }} />
-                    <span className="mono" style={{ fontSize: 12.5 }}>{m}</span>
+                    <Icon name={m.startsWith("nvidia/") ? "globe" : "bolt"} size={14} style={{ color: m === effectiveModel ? "var(--accent)" : "var(--ink-3)" }} />
+                    <span className="mono" style={{ fontSize: 12.5 }}>{modelLabel(m)}</span>
                     {m === effectiveModel && <Icon name="check" size={14} style={{ marginLeft: "auto" }} />}
                   </div>
                 ))}

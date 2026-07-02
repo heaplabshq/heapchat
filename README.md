@@ -2,7 +2,7 @@
 
 **Browse your files like a Pinterest board. Chat with a local AI that actually knows what's in them.**
 
-Cortex is a local-first knowledge workspace: point it at your folders and it turns them into a searchable, chattable knowledge base — powered entirely by a local [Ollama](https://ollama.com) model. No cloud dependency, no API keys, no telemetry. Everything — indexing, embeddings, vision, chat — runs on your machine.
+Cortex is a local-first knowledge workspace: point it at your folders and it turns them into a searchable, chattable knowledge base — powered by a local [Ollama](https://ollama.com) model by default. No cloud dependency, no API keys, no telemetry required. Everything — indexing, embeddings, vision, chat — runs on your machine unless you deliberately opt into a cloud model (an admin can add NVIDIA's hosted models as a second, optional provider — see [Configuration](#configuration)).
 
 It ships as both a desktop app (Electron, macOS/Windows) and a self-hosted web server you can run on your LAN and reach from your phone.
 
@@ -33,6 +33,7 @@ Cortex isn't trying to be a smaller ChatGPT — it's built around a different pr
 | Multi-user with server-enforced, per-folder access control | N/A (single-user) | Yes | **Yes** |
 | Background agent jobs on a schedule | No | No | **Yes** — digests to feed/note/notification |
 | MCP client *and* server | Varies | Client only | **Both** |
+| Optional cloud model as a second provider | N/A | Yes (many) | **Yes** — NVIDIA, admin-configured, full agent + tool-calling support |
 
 Where Cortex is still catching up: it doesn't yet have voice conversation, a split-pane editable canvas, or a mobile-first layout — all real gaps against the hosted apps, tracked openly rather than glossed over. What it trades those for is an AI that actually accumulates context about your files and you, permanently, without any of it leaving your machine.
 
@@ -173,6 +174,20 @@ HOST=127.0.0.1
 **Models are switchable in the UI** — the composer's model picker changes the model for the current conversation, and Settings has dropdowns for the default chat and agent models, populated from whatever you have installed locally (`GET /api/models`).
 
 `.env` is git-ignored; never committed.
+
+### Optional: NVIDIA as a second provider
+
+Cortex can also talk to [NVIDIA's OpenAI-compatible API](https://integrate.api.nvidia.com) alongside Ollama — full agent and tool-calling support, not just plain chat. It's entirely opt-in and admin-configured:
+
+```
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_MODELS=z-ai/glm-5.2
+NVIDIA_MODEL=z-ai/glm-5.2
+NVIDIA_AGENT_MODEL=z-ai/glm-5.2
+```
+
+Leave `NVIDIA_API_KEY` unset (the default) and nothing changes — no NVIDIA models appear anywhere and no network calls are made toward NVIDIA. Once set, `NVIDIA_MODELS` (comma-separated) controls exactly which model ids show up in every model picker, prefixed `nvidia/` to distinguish them from local Ollama models. The API key lives in `.env` only — it's never sent to or settable from the browser, and can't be overridden on a per-request basis by any user, admin or not.
 
 ## Accounts & multi-tenant
 

@@ -19,7 +19,8 @@ const { Jimp } = require("jimp");       // pixel access for perceptual image has
 
 /* ---- extracted modules (see SERVER-REFACTOR-PLAN.md) — re-bound into local scope
    so existing call sites are unchanged ---- */
-const { DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE } = require("./src/config");
+const { DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE,
+  NVIDIA_API_KEY, NVIDIA_MODELS, NVIDIA_AGENT_MODEL } = require("./src/config");
 const { writeJSONAtomic } = require("./src/util/json-store");
 const { TEXTLIKE, MIME, DESCRIBABLE_IMG, extOf, kindOf, fmtSize, fmtDate, isImageFile, safeName } = require("./src/util/files");
 const { buildProvenance } = require("./src/util/text");
@@ -41,6 +42,8 @@ const { reverseGeocode, graphCache, graphFor, ensurePhotoGeo, docExcerptsFor, gr
 const { dtEcho, dtGenerate, dtEdit } = require("./src/media/drawthings");
 const { enhancePrompt, saveGeneratedImage } = require("./src/media/image-prompt");
 const { completeJSON, completeText } = require("./src/llm/ollama");
+const { providerOf: modelProviderOf, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("./src/llm/router");
+const nvidiaLLM = require("./src/llm/nvidia");
 const { mcpEnabled, mcpPublic, forgetSession, dropMcpClient, mcpListTools, mcpCallTool } = require("./src/mcp/client");
 const { addMemory, memPublic, sysInfoBlock, memoryBlock, scheduleEpisode, scheduleTitle, cancelUserTimers } = require("./src/llm/memory");
 const { addSkill, updateSkill, removeSkill, skillsBlock, skillPublic } = require("./src/llm/skills");
@@ -195,6 +198,8 @@ app.get("/api/config", (req, res) => {
     role: req.user.role,
     userId: req.user.id,
     folders: req.user.folders || [],
+    nvidiaEnabled: !!NVIDIA_API_KEY,
+    nvidiaAgentModel: NVIDIA_API_KEY ? "nvidia/" + NVIDIA_AGENT_MODEL : "",
   });
 });
 
@@ -1725,7 +1730,7 @@ async function compactHistory(model, sessionKey, history, budgetChars) {
     const base = cached && cached.upto < i ? cached : { upto: 0, summary: "" };
     const fresh = history.slice(base.upto, i).map(m => m.role.toUpperCase() + ": " + String(m.content || "").slice(0, 1500)).join("\n\n");
     const input = (base.summary ? `NOTES ON THE CONVERSATION SO FAR:\n${base.summary}\n\nNEWER MESSAGES TO FOLD INTO THE NOTES:\n` : "") + fresh;
-    summary = await completeText(model, SUMMARIZE_SYS, input.slice(-24000), 900, 0.2);
+    summary = await routedCompleteText(model, SUMMARIZE_SYS, input.slice(-24000), 900, 0.2);
     if (!summary.trim()) return { history, compacted: 0, foldedNew: false };   // summarizer failed → num_ctx sizing/trim still protect
     if (sessionKey) {
       CHAT_SUMMARIES.set(sessionKey, { upto: i, summary });
@@ -1941,22 +1946,40 @@ app.post("/api/agent", async (req, res) => {
       // --- timing: Ollama withholds the HTTP response until load+prefill finish, so start the clock BEFORE the fetch ---
       const _t0 = Date.now(); let _tFirst = 0, _doneMeta = null;
       const markFirst = () => { if (!_tFirst) _tFirst = Date.now() - _t0; };
+      let content = "", toolCalls = [], thinkAccum = "", doneReason = "";
+      // Inline <think> tag parser: some models (e.g. Qwen3-MLX) embed tags in the content stream
+      // instead of using a native reasoning field — shared by both providers below.
+      const split = makeThinkSplitter(
+        t => { markFirst(); thinkAccum += t; write({ message: { thinking: t } }); },
+        c => { markFirst(); content += c; write({ message: { content: c } }); });
+      const toolDefs = withTools ? agentToolDefs({ web: webEnabled, urls: pastedUrls.length > 0, user: req.user, files: filesEnabled, memory: memoryEnabled, connectors: connectorsEnabled, imageGen: imageGenEnabled }) : undefined;
+
+      if (modelProviderOf(chosen) === "nvidia") {
+        // NVIDIA's OpenAI-compatible API is server-managed context (no num_ctx to size) —
+        // reuses the same msgs/trimming above, just a different transport + response shape.
+        const r = await nvidiaLLM.streamChatTurn({
+          model: chosen.slice("nvidia/".length), messages: msgs, tools: toolDefs,
+          temperature, maxTokens: npredict, topP,
+          onContent: c => split.push(c),
+          onThinking: t => { markFirst(); thinkAccum += t; write({ message: { thinking: t } }); },
+        });
+        split.flush();
+        toolCalls = r.toolCalls; doneReason = r.doneReason;
+        console.log(`[TIMING] ${withTools ? "tools " : "answer"} (nvidia) stall-before-first-token=${_tFirst}ms`);
+        return { content, toolCalls, thinking: thinkAccum, doneReason };
+      }
+
       const up = await fetch(`${OLLAMA_URL}/api/chat`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE,
           model: chosen, messages: msgs, stream: true, think: noThink ? false : !!thinking,
-          ...(withTools ? { tools: agentToolDefs({ web: webEnabled, urls: pastedUrls.length > 0, user: req.user, files: filesEnabled, memory: memoryEnabled, connectors: connectorsEnabled, imageGen: imageGenEnabled }) } : {}),
+          ...(toolDefs ? { tools: toolDefs } : {}),
           options: { temperature, num_predict: npredict, top_p: topP, num_ctx: numCtx },
         }),
       });
       if (!up.ok || !up.body) { const d = await up.text().catch(() => ""); throw new Error(`Ollama ${up.status}: ${d}`); }
       const reader = up.body.getReader(); const dec = new TextDecoder();
-      let buf = "", content = "", toolCalls = [], thinkAccum = "", doneReason = "";
-      // Inline <think> tag parser: some models (e.g. Qwen3-MLX) embed tags in m.content
-      // instead of using Ollama's native thinking field.
-      const split = makeThinkSplitter(
-        t => { markFirst(); thinkAccum += t; write({ message: { thinking: t } }); },
-        c => { markFirst(); content += c; write({ message: { content: c } }); });
+      let buf = "";
       for (;;) {
         const { value, done } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
@@ -2052,7 +2075,7 @@ app.post("/api/agent", async (req, res) => {
         const fargs = tc.function && tc.function.arguments;
         if (RETRIEVAL_TOOLS.has(fname)) searched = true;   // the agent looked at the user's data
         write({ step: { name: fname, args: fargs } });
-        return { fname, fargs, p: execTool(fname, fargs, ctx) };
+        return { fname, fargs, id: tc.id, p: execTool(fname, fargs, ctx) };
       });
       let askedUser = false;
       for (const job of jobs) {
@@ -2084,7 +2107,9 @@ app.post("/api/agent", async (req, res) => {
           write({ action });   // e.g. open a file in the UI
           if (action.type === "open_file" && action.path) { allSources.set(action.path, { name: action.name, score: 1 }); opened.add(action.path); }
         }
-        convo.push({ role: "tool", content: typeof result === "string" ? result : JSON.stringify(result) });
+        // tool_call_id is required by OpenAI-compatible providers (NVIDIA) to link this result back to
+        // the assistant's tool call; Ollama doesn't need it and job.id is simply absent for that path.
+        convo.push({ role: "tool", content: typeof result === "string" ? result : JSON.stringify(result), ...(job.id ? { tool_call_id: job.id } : {}) });
       }
       if (askedUser) { answered = true; break; }   // waiting on the user's reply — stop the loop here
     }
@@ -2107,7 +2132,7 @@ app.post("/api/agent", async (req, res) => {
     if (factCheck && (used.length || (searched && allSources.size)) && evidence.length && allText.trim()) {
       write({ step: { name: "fact_check", args: {} } });   // the end-of-answer pause is this — show it
       const evidenceText = evidence.map(e => `[${e.source}]\n${e.text}`).join("\n\n").slice(0, 7000);
-      const v = await completeJSON(chosen, VERIFY_SYS, `EVIDENCE:\n${evidenceText}\n\nANSWER:\n${allText.trim().slice(0, 3500)}`);
+      const v = await routedCompleteJSON(chosen, VERIFY_SYS, `EVIDENCE:\n${evidenceText}\n\nANSWER:\n${allText.trim().slice(0, 3500)}`);
       if (v && v.verdict) {
         const cleanIssues = arr => Array.isArray(arr) ? arr.map(s => String(s).trim()).filter(s => s && !/^(none|n\/?a|null|no issues?|nothing)$/i.test(s)).slice(0, 3) : [];
         const issues = cleanIssues(v.issues);
@@ -2125,14 +2150,14 @@ app.post("/api/agent", async (req, res) => {
         // Reflexion-lite: the fact-check found problems → one corrective pass with the exact issues,
         // then re-verify so the badge reflects the FIXED answer, not the draft.
         if (issues.length) {
-          const fixed = await completeText(chosen,
+          const fixed = await routedCompleteText(chosen,
             "You correct a draft answer so every claim is supported by the EVIDENCE. Fix or remove each problem claim listed; if the evidence does not contain the requested information, say that plainly instead. Keep the same language, format, tone and [bracketed] citations. Do not add new unsupported claims. Do not mention this correction process — output only the corrected answer.",
             `EVIDENCE:\n${evidenceText}\n\nDRAFT ANSWER:\n${allText.trim().slice(0, 3500)}\n\nPROBLEM CLAIMS:\n- ${issues.join("\n- ")}`, 1200, 0.2);
           if (fixed && fixed.trim() && fixed.trim() !== allText.trim()) {
             write({ revision: { text: fixed.trim() } });
             allText = fixed.trim();
             console.log("[agent] self-corrected after fact-check flagged " + issues.length + " claim(s)");
-            const v2 = await completeJSON(chosen, VERIFY_SYS, `EVIDENCE:\n${evidenceText}\n\nANSWER:\n${allText.slice(0, 3500)}`);
+            const v2 = await routedCompleteJSON(chosen, VERIFY_SYS, `EVIDENCE:\n${evidenceText}\n\nANSWER:\n${allText.slice(0, 3500)}`);
             verification = v2 && v2.verdict
               ? { verdict: String(v2.verdict).toLowerCase(), issues: cleanIssues(v2.issues), revised: true }
               : { ...verification, revised: true };
@@ -2289,9 +2314,31 @@ app.post("/api/chat", async (req, res) => {
       }
     }
 
+    const chatMsgs = [{ role: "system", content: sys }, ...turns];
+
+    if (modelProviderOf(chosenModel) === "nvidia") {
+      // No native tool-calling here (this route is the simple single-file/folder/assistant/general
+      // chat, not the agent) — just re-emit NVIDIA's stream as the same Ollama-shaped NDJSON lines
+      // this route already writes, so the existing frontend consumer needs no changes.
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache");
+      if (sources.length) res.write(JSON.stringify({ sources }) + "\n");
+      let usedTokens = 0;
+      await nvidiaLLM.streamChatTurn({
+        model: chosenModel.slice("nvidia/".length), messages: chatMsgs,
+        temperature, maxTokens, topP,
+        onContent: c => res.write(JSON.stringify({ message: { content: c } }) + "\n"),
+        onThinking: t => res.write(JSON.stringify({ message: { thinking: t } }) + "\n"),
+        onContext: used => { usedTokens = used; },
+      });
+      if (usedTokens) res.write(JSON.stringify({ context: { used: usedTokens, max: contextWindow || 8192 } }) + "\n");
+      res.end();
+      return;
+    }
+
     const payload = { keep_alive: OLLAMA_KEEP_ALIVE,
       model: chosenModel,
-      messages: [{ role: "system", content: sys }, ...turns],
+      messages: chatMsgs,
       stream: true,
       options: { temperature, num_predict: maxTokens, top_p: topP, ...(contextWindow ? { num_ctx: contextWindow } : {}) },
     };
@@ -2352,15 +2399,17 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-/* ---------------- list installed Ollama models ---------------- */
+/* ---------------- list installed Ollama models (+ the admin's NVIDIA allowlist, if configured) ---------------- */
 app.get("/api/models", async (_req, res) => {
+  // NVIDIA models are addressed as "nvidia/<real-id>" everywhere in the app — see src/llm/router.js
+  const nvidiaModels = NVIDIA_API_KEY ? NVIDIA_MODELS.map(m => "nvidia/" + m) : [];
   try {
     const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
     const j = await r.json();
     const models = (j.models || []).map(m => m.name).sort((a, b) => a.localeCompare(b));
-    res.json({ models });
+    res.json({ models: [...models, ...nvidiaModels] });
   } catch {
-    res.json({ models: [] });
+    res.json({ models: nvidiaModels });
   }
 });
 

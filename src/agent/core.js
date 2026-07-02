@@ -26,6 +26,7 @@ const { dtGenerate, dtEdit, dtEcho } = require("../media/drawthings");
 const { saveGeneratedImage } = require("../media/image-prompt");
 const { describeImage } = require("../llm/vision");
 const { completeJSON, completeText } = require("../llm/ollama");
+const { completeJSON: routedCompleteJSON } = require("../llm/router");
 const { addMemory, sysInfoBlock } = require("../llm/memory");
 const { addSkill, findSkills, markSkillUsed } = require("../llm/skills");
 const { getTags, setTags, imageMeta, tagStore, faceStore, placeNames, persistTags, persistImageMeta, persistPlaceNames } = require("../state/sidecars");
@@ -196,7 +197,7 @@ const TOOL_REGISTRY = {
       let rephrased = "";
       if (!hits.length || hits[0].score < 0.5) {
         try {
-          const j = await completeJSON(ctx.model || OLLAMA_MODEL,
+          const j = await routedCompleteJSON(ctx.model || OLLAMA_MODEL,
             'You rewrite a search query for semantic document search. Reply ONLY {"query":"…"} — the same information need rephrased with different words/synonyms, phrased the way a document would state it. Keep names, numbers, and identifiers EXACTLY as given.',
             q0, 60);
           const q1 = j && String(j.query || "").trim();

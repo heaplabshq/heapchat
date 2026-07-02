@@ -55,13 +55,17 @@ function Slider({ label, hint, value, min, max, step, fmt, onChange }) {
   );
 }
 
+// "nvidia/z-ai/glm-5.2" -> "z-ai/glm-5.2 · NVIDIA" for display — the prefix is an internal
+// routing marker (src/llm/router.js), not part of the real model id.
+function modelOptLabel(m) { return m && m.startsWith("nvidia/") ? m.slice("nvidia/".length) + " · NVIDIA" : m; }
+
 function ModelSelect({ value, models, onChange }) {
   const opts = (models && models.length) ? models : (value ? [value] : []);
   const missing = value && !opts.includes(value);
   return (
     <select className="select mono" style={{ maxWidth: 360, fontSize: 13 }} value={value} onChange={e => onChange(e.target.value)}>
-      {missing && <option value={value}>{value} (not installed)</option>}
-      {opts.map(m => <option key={m} value={m}>{m}</option>)}
+      {missing && <option value={value}>{modelOptLabel(value)} (not installed)</option>}
+      {opts.map(m => <option key={m} value={m}>{modelOptLabel(m)}</option>)}
     </select>
   );
 }
@@ -530,7 +534,7 @@ function ImageGenSection({ settings, set }) {
   );
 }
 
-function SettingsPage({ settings, set, onSave, onReset, online, models, account }) {
+function SettingsPage({ settings, set, onSave, onReset, online, models, account, nvidiaEnabled }) {
   return (
     <div className="settings-scroll scroll">
       <div className="settings-wrap">
@@ -545,10 +549,16 @@ function SettingsPage({ settings, set, onSave, onReset, online, models, account 
           <div className="set-sub">Cortex runs inference on your local Ollama instance.</div>
 
           <div className="field">
-            <span className="field-label">Provider</span>
+            <span className="field-label">Providers</span>
             <div className="seg">
               <button className="on">Ollama <span style={{ opacity: .55, fontWeight: 600 }}>· local</span></button>
+              {nvidiaEnabled
+                ? <button className="on">NVIDIA <span style={{ opacity: .55, fontWeight: 600 }}>· cloud</span></button>
+                : <button disabled title="Set NVIDIA_API_KEY in .env to enable" style={{ opacity: .45 }}>NVIDIA <span style={{ opacity: .7, fontWeight: 600 }}>· not configured</span></button>}
             </div>
+            {nvidiaEnabled && (
+              <span className="field-hint">NVIDIA models appear in the model pickers below, prefixed <span className="mono">nvidia/</span>. The API key is admin-configured server-side via <span className="mono">.env</span> — it's never sent to or editable from the browser. The allowed model list is set with <span className="mono">NVIDIA_MODELS</span>.</span>
+            )}
           </div>
 
           <div className="field">

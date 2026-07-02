@@ -17,4 +17,15 @@ const OLLAMA_VISION_MODEL = process.env.OLLAMA_VISION_MODEL || OLLAMA_MODEL;
 const OLLAMA_AGENT_MODEL = process.env.OLLAMA_AGENT_MODEL || OLLAMA_MODEL;
 const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || "30m";   // keep models resident between requests — kills the cold-load stall
 
-module.exports = { ROOT, DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE };
+// NVIDIA's OpenAI-compatible API (integrate.api.nvidia.com) — an optional second provider
+// alongside Ollama. The key is server-side only (admin-configured via .env); it's never sent
+// to or settable by the browser. Selectable models are capped to an admin-set allowlist rather
+// than accepting arbitrary model strings from the client.
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || "";
+const NVIDIA_BASE_URL = (process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1").replace(/\/+$/, "");
+const NVIDIA_MODELS = (process.env.NVIDIA_MODELS || "z-ai/glm-5.2").split(",").map(s => s.trim()).filter(Boolean);
+const NVIDIA_MODEL = process.env.NVIDIA_MODEL || NVIDIA_MODELS[0] || "";
+const NVIDIA_AGENT_MODEL = process.env.NVIDIA_AGENT_MODEL || NVIDIA_MODEL;
+
+module.exports = { ROOT, DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE,
+  NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_MODELS, NVIDIA_MODEL, NVIDIA_AGENT_MODEL };

@@ -711,7 +711,8 @@ function App({ user }) {
       <main className="main">
         {view === "settings" ? (
           <SettingsPage settings={draft} set={setDraftPartial} onSave={saveSettings} onReset={resetSettings} online={online} models={models}
-            account={config ? { user: config.user, role: config.role, userId: config.userId } : null} />
+            account={config ? { user: config.user, role: config.role, userId: config.userId } : null}
+            nvidiaEnabled={config ? !!config.nvidiaEnabled : false} />
         ) : view === "manage" ? (
           <ManagePage onOpenFolder={f => loadFolder(f)} />
         ) : view === "projects" ? (
