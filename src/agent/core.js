@@ -955,11 +955,13 @@ async function streamReport(model, messages, options, write, tag) {
     t => write({ message: { thinking: t, ...(tag ? { agent: tag } : {}) } }),
     c => { content += c; write({ message: { content: c } }); });
   if (modelProviderOf(model) === "nvidia") {
-    await nvidiaLLM.streamChatTurn({
-      model: model.slice("nvidia/".length), messages, temperature: options && options.temperature,
-      onContent: c => split.push(c),
-      onThinking: t => write({ message: { thinking: t, ...(tag ? { agent: tag } : {}) } }),
-    });
+    try {
+      await nvidiaLLM.streamChatTurn({
+        model: model.slice("nvidia/".length), messages, temperature: options && options.temperature,
+        onContent: c => split.push(c),
+        onThinking: t => write({ message: { thinking: t, ...(tag ? { agent: tag } : {}) } }),
+      });
+    } catch { return ""; }   // matches the Ollama branch below: fail silently, don't crash the pipeline
     split.flush();
     return content;
   }
