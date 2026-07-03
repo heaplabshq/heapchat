@@ -13,6 +13,52 @@ const TEXT_EXT = new Set([
   "h", "hpp", "sql", "ini", "toml", "env", "conf", "svg", "rtf", "gitignore",
 ]);
 const MD_EXT = new Set(["md", "markdown"]);
+const CSV_EXT = new Set(["csv", "tsv"]);
+
+// proper quote-aware CSV/TSV parser (handles delimiters and newlines inside "quoted" fields) —
+// naive text.split(",") breaks on real spreadsheet exports the moment a field is quoted.
+function parseCSV(text, delim) {
+  const rows = []; let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === delim) { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c === "\r") { /* skip — \n follows in \r\n line endings */ }
+    else field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.length > 1 || r[0] !== "");   // drop a trailing blank line's empty row
+}
+
+// render CSV/TSV as a real table, matching the chat's query_csv table styling (.rb-table*)
+const CSV_ROW_CAP = 1000;
+function CsvTable({ text }) {
+  const parsed = React.useMemo(() => {
+    const delim = (text.includes("\t") && !(text.split("\n")[0] || "").includes(",")) ? "\t" : ",";
+    return parseCSV(text, delim);
+  }, [text]);
+  if (!parsed.length) return <div className="t-sm ink-3">Empty file.</div>;
+  const [header, ...rows] = parsed;
+  const shown = rows.slice(0, CSV_ROW_CAP);
+  return (
+    <div>
+      <div className="rb-table-bar">
+        <span className="t-xs ink-3">{rows.length} row{rows.length === 1 ? "" : "s"} · {header.length} col{header.length === 1 ? "" : "s"}</span>
+      </div>
+      <div className="rb-table-wrap">
+        <table className="rb-table">
+          <thead><tr>{header.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
+          <tbody>{shown.map((r, ri) => <tr key={ri}>{header.map((_, ci) => <td key={ci}>{r[ci] ?? ""}</td>)}</tr>)}</tbody>
+        </table>
+        {rows.length > shown.length && <div className="t-xs ink-3" style={{ padding: "6px 2px 0" }}>+{rows.length - shown.length} more rows — use Edit or Download for the full file</div>}
+      </div>
+    </div>
+  );
+}
 
 // extensions the server will actually accept a save for (src/util/files.js TEXTLIKE) — a strict
 // subset of TEXT_EXT above, which also covers a few formats (scss/less/etc.) that render fine but
@@ -49,6 +95,7 @@ function TextPreview({ file }) {
   }, [file.id]);
 
   const isMd = MD_EXT.has(file.ext);
+  const isCsv = CSV_EXT.has(file.ext);
   const canEdit = EDITABLE_EXT.has(file.ext) && !state.truncated;
 
   function startEdit() { setDraft(state.text); setSaveErr(null); setEditing(true); }
@@ -63,7 +110,7 @@ function TextPreview({ file }) {
 
   return (
     <div className="preview preview-doc scroll">
-      <div className="doc-sheet" style={{ maxWidth: isMd ? 720 : 860 }}>
+      <div className="doc-sheet" style={{ maxWidth: isMd ? 720 : isCsv && !editing ? "100%" : 860 }}>
         {!state.loading && !state.error && (
           <div className="row gap-2" style={{ marginBottom: 12, justifyContent: "flex-end" }}>
             {editing ? (
@@ -90,6 +137,8 @@ function TextPreview({ file }) {
             style={{ width: "100%", minHeight: 420, fontSize: 12.5, lineHeight: 1.6, resize: "vertical" }} />
         ) : isMd ? (
           fmt(state.text)
+        ) : isCsv ? (
+          <CsvTable text={state.text} />
         ) : (
           <pre className="codeblock"><code>{state.text}</code></pre>
         )}
