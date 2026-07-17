@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Heap Chat — the AI workspace that actually knows your files</title>
+<meta name="description" content="Heap Chat turns your folders into a searchable, chattable knowledge base — powered by a local Ollama model. Grounded, verified answers, persistent memory, a knowledge graph, and multi-user access control. No cloud dependency, no telemetry." />
+<meta property="og:title" content="Heap Chat — the AI workspace that actually knows your files" />
+<meta property="og:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="assets/screenshots/chat-agent.png" />
+<meta name="theme-color" content="#4F46E5" />
+<link rel="icon" href="assets/logo.png" />
+<link rel="stylesheet" href="assets/style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+<!-- ============ icon sprite ============ -->
+<svg style="display:none" aria-hidden="true">
+  <defs>
+    <g id="ip" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></g>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3.5 13.6 9 19 10.6 13.6 12.2 12 17.5 10.4 12.2 5 10.6 10.4 9z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 4v3M20 5.5h-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m20.5 20.5-4.2-4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-brain" viewBox="0 0 24 24"><path d="M9 6a2.5 2.5 0 0 0-2.5 2.5c-1.3.3-2 1.4-2 2.6 0 .9.4 1.6 1 2.1-.3.5-.5 1-.5 1.6A2.7 2.7 0 0 0 8 17.5c.3 1 1.2 1.7 2.3 1.7.7 0 .9-.3.9-.9V6.4C11.2 5.6 10.6 5 9.8 5 9.5 5 9.2 5.4 9 6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15 6a2.5 2.5 0 0 1 2.5 2.5c1.3.3 2 1.4 2 2.6 0 .9-.4 1.6-1 2.1.3.5.5 1 .5 1.6a2.7 2.7 0 0 1-3 2.7c-.3 1-1.2 1.7-2.3 1.7-.7 0-.9-.3-.9-.9V6.4C12.8 5.6 13.4 5 14.2 5c.3 0 .6.4.8 1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19c.6-3.4 2.9-5.2 5.5-5.2s4.9 1.8 5.5 5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M15.5 5.3c1.4.3 2.4 1.5 2.4 3s-1 2.7-2.4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M16 13.9c2.2.5 3.8 2.1 4.3 5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.3" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="6" r="2.3" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="13" r="2.3" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="6" cy="19" r="2.3" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="19" r="2.3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7.7 7.3 10.3 11.4M16.3 7.3 13.7 11.4M11.3 15 7.6 17.4M12.7 15l3.7 2.4M8 6h8" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="9" cy="9.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 17.5 9.5 12l3.5 3 3-2.5 4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2.5v5M15 2.5v5M6 7.5h12v3a6 6 0 0 1-12 0z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 16.5V21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 19 6v6c0 4.8-3 7.8-7 8.5-4-.7-7-3.7-7-8.5V6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m9 12 2.2 2.2L15.5 9.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4.5 12h15M13 5.5 19.5 12 13 18.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 2.2c-5.5 0-10 4.5-10 10 0 4.4 2.9 8.1 6.8 9.5.5.1.7-.2.7-.5v-1.9c-2.8.6-3.4-1.2-3.4-1.2-.4-1.1-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.2-4.6-5.2 0-1.1.4-2 1-2.8-.1-.3-.5-1.4.1-2.9 0 0 .8-.3 2.7 1a9 9 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.5.2 2.6.1 2.9.6.8 1 1.7 1 2.8 0 4-2.4 4.9-4.7 5.1.4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5 4-1.4 6.8-5.1 6.8-9.5 0-5.5-4.5-10-10-10z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-apple" viewBox="0 0 24 24"><path d="M16.5 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.8-3.5.8-.7 0-1.9-.8-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.3 1.2 9.6.8 1.2 1.7 2.4 3 2.4 1.2 0 1.6-.8 3.1-.8s1.9.8 3.1.7c1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7-.1 0-2.6-1-2.6-3.9z" fill="currentColor" stroke="none"/><path d="M13.9 5.5c.7-.8 1.1-1.9 1-3-.9.1-2.1.6-2.7 1.4-.6.6-1.1 1.7-1 2.7 1.1.1 2-.5 2.7-1.1z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5.6 10.5 4.5V11.4H3zM11.5 4.4 21 3v8.3H11.5zM3 12.4H10.5V19.4L3 18.3zM11.5 12.4H21V20.9L11.5 19.5z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 12h17" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3.5c2.6 2.4 2.6 14.6 0 17.1M12 3.5c-2.6 2.4-2.6 14.6 0 17.1" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5C3 5.7 3.6 5 4.5 5h4l1.8 2H19.5c.8 0 1.5.7 1.5 1.5V17.5c0 .8-.7 1.5-1.5 1.5h-15C3.7 19 3 18.3 3 17.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5.5 13H11l-.8 8 7.8-10.5H12z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8.5C4 7.4 4.9 6.5 6 6.5h1.2l1-1.6h7.6l1 1.6H18c1.1 0 2 .9 2 2V17c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="6" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="15" y="4" width="6" height="6" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="9" y="14" width="6" height="6" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 10v2a2 2 0 0 0 2 2h1M18 10v2a2 2 0 0 1-2 2h-1M12 14v-2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7.5 10.5V7.5a4.5 4.5 0 0 1 9 0v3" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6.5" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7" cy="7.2" r=".9" fill="currentColor" stroke="none"/><circle cx="7" cy="16.7" r=".9" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M9.5 14.5 14.5 9.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M11 6.5 13 4.5a3.7 3.7 0 0 1 5.2 5.2l-2 2M13 17.5l-2 2a3.7 3.7 0 0 1-5.2-5.2l2-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<!-- ============ nav ============ -->
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <img src="assets/logo.png" alt="Heap Chat" />
+      <span>Heap Chat</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#compare">Why Heap Chat</a>
+      <a href="#screenshots">See it in action</a>
+      <a href="#features">Features</a>
+      <a href="#research">Research</a>
+      <a href="#desktop">Desktop app</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn" href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener">
+        <svg><use href="#i-github"/></svg> GitHub
+      </a>
+      <a class="btn primary" href="#get-started">Get started</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ hero ============ -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <span class="eyebrow"><svg><use href="#i-sparkles"/></svg> Local-first AI workspace</span>
+          <h1>Browse your files like a board.<br>Chat with an AI that <em>actually knows</em> what's in them.</h1>
+          <p class="lede">Heap Chat turns your folders into a searchable, chattable knowledge base — powered entirely by a local Ollama model. No cloud dependency, no API keys required, no telemetry. The AI lives with your files permanently, instead of visiting them one upload at a time.</p>
+          <div class="hero-actions">
+            <a class="btn primary lg" href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener"><svg><use href="#i-github"/></svg> View on GitHub</a>
+            <a class="btn lg" href="#get-started"><svg><use href="#i-download"/></svg> Get started</a>
+          </div>
+          <div class="hero-badges">
+            <span class="hero-badge"><svg><use href="#i-check"/></svg> 100% local by default</span>
+            <span class="hero-badge"><svg><use href="#i-check"/></svg> Free & noncommercial-open</span>
+            <span class="hero-badge"><svg><use href="#i-check"/></svg> macOS · Windows · Web/PWA</span>
+            <span class="hero-badge"><svg><use href="#i-check"/></svg> No telemetry, ever</span>
+          </div>
+        </div>
+      </div>
+      <div class="mockup">
+        <div class="mockup-bar"><span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span></div>
+        <img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent answering a question, with cited sources, a fact-checked verification badge, and value-level provenance" loading="eager" />
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ why ============ -->
+  <section class="section-pad" id="why">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow"><svg><use href="#i-bolt"/></svg> Why Heap Chat</span>
+        <h2>Not just search. Not just a chat wrapper.</h2>
+        <p class="lede">Six things Heap Chat treats as first-class, that most AI file tools bolt on as an afterthought — or skip entirely.</p>
+      </div>
+      <div class="why-grid">
+        <div class="card">
+          <div class="card-ico"><svg><use href="#i-shield"/></svg></div>
+          <h3>Fully local, fully private</h3>
+          <p>No data leaves your machine except to your own Ollama server — and only to the web/MCP endpoints you explicitly enable. Nothing phones home, ever.</p>
+        </div>
+        <div class="card">
+          <div class="card-ico"><svg><use href="#i-workflow"/></svg></div>
+          <h3>An agent, not just search</h3>
+          <p>A multi-step, tool-using agent reasons over your files, cites its sources, and self-verifies grounded answers before you ever see them.</p>
+        </div>
+        <div class="card">
+          <div class="card-ico"><svg><use href="#i-image"/></svg></div>
+          <h3>Everything, not just documents</h3>
+          <p>Photos, videos, audio, PDFs, Word docs, code, CSVs — with face recognition, a photo map, and a knowledge graph tying it all together.</p>
+        </div>
+        <div class="card">
+          <div class="card-ico"><svg><use href="#i-brain"/></svg></div>
+          <h3>Gets smarter over time</h3>
+          <p>A learning loop gives it persistent memory, a profile of how you like to be helped, and skills it teaches itself from repeated tasks.</p>
+        </div>
+        <div class="card">
+          <div class="card-ico"><svg><use href="#i-users"/></svg></div>
+          <h3>Multi-user, real access control</h3>
+          <p>Admin/member roles with per-folder grants enforced server-side on every request — not just hidden behind a UI toggle.</p>
+        </div>
+        <div class="card">
+          <div class="card-ico"><svg><use href="#i-plug"/></svg></div>
+          <h3>Extensible by design</h3>
+          <p>Connect to any MCP server, or expose Heap Chat's own knowledge base as an MCP server to Claude Desktop, Claude Code, or any client.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ compare ============ -->
+  <section class="section-pad" id="compare" style="background:var(--surface-2)">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow"><svg><use href="#i-graph"/></svg> How it compares</span>
+        <h2>The AI lives with your files, permanently</h2>
+        <p class="lede">Heap Chat isn't trying to be a smaller ChatGPT. It's built around a different premise — instead of visiting your files one upload at a time, the AI stays with them.</p>
+      </div>
+      <div class="compare-wrap">
+        <table class="compare">
+          <thead>
+            <tr><th>Capability</th><th>ChatGPT / Claude</th><th>Open WebUI</th><th class="us">Heap Chat</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="feat">Runs fully offline / local-only</td><td class="no">No</td><td>Yes</td><td class="us">Yes</td></tr>
+            <tr><td class="feat">Memory that reflects, decays, and learns a profile of you</td><td>Shallow flat facts</td><td class="no">No</td><td class="us">Yes — typed memory, episodic reflection, auto-built profile</td></tr>
+            <tr><td class="feat">Knowledge graph over your own files</td><td class="no">No</td><td class="no">No</td><td class="us">Yes — people, places, tags, documents fused, LLM-free</td></tr>
+            <tr><td class="feat">Photo-native (face recognition, geotag map, visual dedup)</td><td class="no">No</td><td class="no">No</td><td class="us">Yes</td></tr>
+            <tr><td class="feat">Local image generation tied into chat</td><td>Hosted API only</td><td class="no">No</td><td class="us">Yes — via Draw Things, fully offline</td></tr>
+            <tr><td class="feat">Multi-user, server-enforced per-folder access control</td><td class="no">N/A (single-user)</td><td>Yes</td><td class="us">Yes</td></tr>
+            <tr><td class="feat">Background agent jobs on a schedule</td><td class="no">No</td><td class="no">No</td><td class="us">Yes — digests to feed / note / notification</td></tr>
+            <tr><td class="feat">MCP client <em>and</em> server</td><td>Varies</td><td>Client only</td><td class="us">Both</td></tr>
+            <tr><td class="feat">Optional cloud model as a second provider</td><td class="no">N/A</td><td>Yes (many)</td><td class="us">Yes — any OpenAI-compatible API, admin-configured</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="compare-note">Where Heap Chat is still catching up: it doesn't yet have voice conversation, a split-pane editable canvas, or a mobile-first layout — real gaps against the hosted apps, tracked openly rather than glossed over. What it trades those for is an AI that actually accumulates context about your files and you, permanently, without any of it leaving your machine.</p>
+    </div>
+  </section>
+
+  <!-- ============ screenshots ============ -->
+  <section class="section-pad" id="screenshots">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow"><svg><use href="#i-sparkles"/></svg> See it in action</span>
+        <h2>What using it actually looks like</h2>
+        <p class="lede">Real screens from the app — no mockups.</p>
+      </div>
+
+      <div class="showcase-row">
+        <div class="showcase-copy">
+          <span class="eyebrow" style="width:fit-content"><svg><use href="#i-folder"/></svg> Browse</span>
+          <h3>Every file, laid out like a board</h3>
+          <p>Open a folder or a single file and Heap Chat turns it into a real masonry gallery — thumbnails, video frames, audio waveforms, document previews. Filter by type, sort, and search by name <em>and content</em>, not just filenames.</p>
+          <ul>
+            <li><strong>Duplicate finder</strong> — clusters photos by perceptual hash, exact vs. similar</li>
+            <li><strong>Multi-select batch actions</strong> — Add to KB, tag, auto-tag, smart-rename</li>
+            <li><strong>Command palette</strong> (⌘K) — jump to any file or action instantly</li>
+          </ul>
+        </div>
+        <div class="shot-frame"><img src="assets/screenshots/gallery.png" alt="Heap Chat's masonry gallery view of an indexed knowledge base folder" /></div>
+      </div>
+
+      <div class="showcase-row rev">
+        <div class="showcase-copy">
+          <span class="eyebrow" style="width:fit-content"><svg><use href="#i-workflow"/></svg> Chat & agent</span>
+          <h3>Every answer, shown its work — then verified</h3>
+          <p>Watch the agent search your files live, cite exactly which documents (and photos) it used, and run a self-verification pass before the answer ever reaches you. Here it reads a receipt image and a budget spreadsheet together to answer one question.</p>
+          <ul>
+            <li><strong>Multimodal RAG</strong> — a photo of a receipt gets cited line-by-line, same as any document</li>
+            <li><strong>Grounded · N sources · verified</strong> badge on every checkable claim</li>
+            <li><strong>Deep work mode</strong> — a planner → researcher → drafter → critic roster for hard requests</li>
+          </ul>
+        </div>
+        <div class="shot-frame"><img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent chat reading a receipt photo and a budget spreadsheet together, with per-line citations, a fact-checked verification pass, and a grounded/verified badge" /></div>
+      </div>
+
+      <div class="showcase-row">
+        <div class="showcase-copy">
+          <span class="eyebrow" style="width:fit-content"><svg><use href="#i-plug"/></svg> Providers</span>
+          <h3>Bring your own model — local, or ten cloud ones</h3>
+          <p>Every provider, including the built-in Ollama connection, gets the exact same flow: a base URL, an API key if it needs one, a live <strong>Test connection</strong> that pulls its real model list, and <strong>Save connection</strong>. No restarts.</p>
+          <ul>
+            <li>One-click presets for OpenAI, Groq, OpenRouter, NVIDIA, Together, Fireworks, DeepSeek, Mistral, xAI, Cerebras</li>
+            <li>Add as many connections as you want, each with its own model allowlist</li>
+            <li>Full agent + tool-calling support on every provider, not just plain chat</li>
+          </ul>
+        </div>
+        <div class="shot-frame"><img src="assets/screenshots/settings-providers.png" alt="Heap Chat Settings page showing the provider connection manager with quick-add presets for popular AI providers" /></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ features ============ -->
+  <section class="section-pad" id="features" style="background:var(--surface-2)">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow"><svg><use href="#i-layers"/></svg> Features</span>
+        <h2>Everything a knowledge workspace needs</h2>
+        <p class="lede">Every category below ships today — nothing here is a roadmap promise.</p>
+      </div>
+      <div class="feat-grid">
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-folder"/></svg></div>
+          <h3>Browse & organize</h3>
+          <p>A real masonry gallery over your actual filesystem, not an upload box.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Search by name <strong>and content</strong></li>
+            <li><svg><use href="#i-check"/></svg> Duplicate finder (exact + visually similar)</li>
+            <li><svg><use href="#i-check"/></svg> Command palette (⌘K)</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-workflow"/></svg></div>
+          <h3>Chat & agent</h3>
+          <p>A native tool-calling agent that loops until it can answer, over your whole KB, a folder, a file, or a Project.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Live chain-of-steps before the answer</li>
+            <li><svg><use href="#i-check"/></svg> Grounding badge + self-verification pass</li>
+            <li><svg><use href="#i-check"/></svg> Deep-work multi-agent roster</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-brain"/></svg></div>
+          <h3>Knowledge & memory</h3>
+          <p>RAG over any folder plus a learning loop that compounds the longer you use it.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Long-term memory, auto-captured</li>
+            <li><svg><use href="#i-check"/></svg> Skills, profile, reflection, scheduler</li>
+            <li><svg><use href="#i-check"/></svg> Multimodal RAG — photos are searchable too</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-camera"/></svg></div>
+          <h3>Photos & people</h3>
+          <p>On-device face detection, a geotagged photo map, and true visual similarity.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Name a face cluster once, it sticks</li>
+            <li><svg><use href="#i-check"/></svg> EXIF GPS plotted on an interactive map</li>
+            <li><svg><use href="#i-check"/></svg> Perceptual-hash related-image finder</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-graph"/></svg></div>
+          <h3>Knowledge graph</h3>
+          <p>A fully local, LLM-free entity graph built from people, places, tags, and documents.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Browse individual entities and links</li>
+            <li><svg><use href="#i-check"/></svg> Force-directed overview of everything</li>
+            <li><svg><use href="#i-check"/></svg> Zero LLM calls to build it</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-layers"/></svg></div>
+          <h3>Projects & custom agents</h3>
+          <p>Named workspaces with their own instructions and KB, plus fully custom agents.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Per-agent system prompt & tool toggles</li>
+            <li><svg><use href="#i-check"/></svg> Export/import any agent or chat as JSON</li>
+            <li><svg><use href="#i-check"/></svg> Grouped chat history per project</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-image"/></svg></div>
+          <h3>Local image generation</h3>
+          <p>Create and edit images entirely offline via a local Draw Things server.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> <span class="mono">/image-create</span> and <span class="mono">/image-edit</span></li>
+            <li><svg><use href="#i-check"/></svg> "Edit with AI" on any gallery photo</li>
+            <li><svg><use href="#i-check"/></svg> No cloud image API involved</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-plug"/></svg></div>
+          <h3>Integrations</h3>
+          <p>MCP client <em>and</em> server, keyless web search, and automatic link reading.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Any MCP server by URL, two meta-tools total</li>
+            <li><svg><use href="#i-check"/></svg> Exposes your KB as an MCP server too</li>
+            <li><svg><use href="#i-check"/></svg> Paste a link, it gets read automatically</li>
+          </ul>
+        </div>
+
+        <div class="feat-card">
+          <div class="card-ico"><svg><use href="#i-shield"/></svg></div>
+          <h3>Multi-tenant & security</h3>
+          <p>Real accounts from the first launch, not a bolted-on afterthought.</p>
+          <ul>
+            <li><svg><use href="#i-check"/></svg> Server-enforced per-folder grants</li>
+            <li><svg><use href="#i-check"/></svg> scrypt-hashed passwords, HttpOnly sessions</li>
+            <li><svg><use href="#i-check"/></svg> Phone/PWA access, gated by the same login</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ research patterns ============ -->
+  <section class="section-pad" id="research">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow"><svg><use href="#i-brain"/></svg> Under the hood</span>
+        <h2>Built on real agent-research patterns, not just plumbing</h2>
+        <p class="lede">Heap Chat's agent behavior is assembled from well-established techniques from the LLM-agent literature — implemented concretely, running locally, not just name-dropped.</p>
+      </div>
+      <div class="research-grid">
+
+        <div class="research-card">
+          <span class="research-num">01</span>
+          <div class="research-body">
+            <span class="research-tag">Retrieval</span>
+            <h3>Retrieval-augmented generation (RAG)</h3>
+            <p>Answers are grounded in your own files instead of parametric memory alone — the model retrieves relevant chunks before it answers.</p>
+            <p class="impl"><b>Here:</b> a vector index per folder/KB, incrementally updated on disk, with clickable source citations on every grounded answer.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">02</span>
+          <div class="research-body">
+            <span class="research-tag">Agentic loop</span>
+            <h3>ReAct-style reason–act–observe loop</h3>
+            <p>Rather than a single forward pass, the model interleaves reasoning with tool calls and observes the results before deciding what to do next.</p>
+            <p class="impl"><b>Here:</b> native Ollama/OpenAI tool-calling looped until the agent can answer, with every step streamed live to the UI.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">03</span>
+          <div class="research-body">
+            <span class="research-tag">Trust layer</span>
+            <h3>Self-verification / chain-of-verification</h3>
+            <p>A model that checks its own draft against evidence catches unsupported claims a single pass would let through.</p>
+            <p class="impl"><b>Here:</b> a dedicated verification pass double-checks specific claims against retrieved evidence, and underlines numbers back to their source row.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">04</span>
+          <div class="research-body">
+            <span class="research-tag">Memory</span>
+            <h3>Reflective, generative-agent-style memory</h3>
+            <p>Memory that just accumulates flat facts gets noisy fast — reflection periodically distills raw experience into durable, higher-level understanding.</p>
+            <p class="impl"><b>Here:</b> typed long-term memory with strict dedup/merge, an opt-in reflection pass over finished chats, and an auto-rebuilt profile of how you like to be helped.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">05</span>
+          <div class="research-body">
+            <span class="research-tag">Procedural memory</span>
+            <h3>Skill acquisition from experience</h3>
+            <p>An agent that solves the same kind of task the same slow way every time isn't learning — procedural memory turns a solved task into a reusable shortcut.</p>
+            <p class="impl"><b>Here:</b> the agent saves step-by-step "skills" after solving a repeatable task, recalled by similarity when a similar task comes up again.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">06</span>
+          <div class="research-body">
+            <span class="research-tag">Multi-agent</span>
+            <h3>Role-specialized multi-agent collaboration</h3>
+            <p>Splitting a hard task across specialized roles — plan, research, draft, critique — tends to outperform one generalist model looping alone.</p>
+            <p class="impl"><b>Here:</b> "Deep work" mode runs a planner → researcher → drafter → critic roster on complex requests instead of a single agent.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">07</span>
+          <div class="research-body">
+            <span class="research-tag">Knowledge graphs</span>
+            <h3>Deterministic entity-graph construction</h3>
+            <p>Not every part of an AI product needs to be a model call — a classic, deterministic entity-fusion graph is faster, cheaper, and can't hallucinate a connection.</p>
+            <p class="impl"><b>Here:</b> people, photo locations, tags, and document entities are fused into a browsable graph with zero LLM calls involved.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">08</span>
+          <div class="research-body">
+            <span class="research-tag">Vision & CV</span>
+            <h3>Perceptual hashing for near-duplicate detection</h3>
+            <p>Filename or byte-hash matching misses crops, edits, and re-compressions — perceptual hashing compares what images actually look like.</p>
+            <p class="impl"><b>Here:</b> photo duplicate/related-image detection uses perceptual hashing, so bursts, crops, and edits get found, not just exact copies.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">09</span>
+          <div class="research-body">
+            <span class="research-tag">Interoperability</span>
+            <h3>Model Context Protocol, both directions</h3>
+            <p>MCP standardizes how models reach external tools and context — most tools only ever consume it.</p>
+            <p class="impl"><b>Here:</b> Heap Chat is both an MCP <em>client</em> (any server, two meta-tools total) and an MCP <em>server</em> exposing your KB to Claude Desktop, Claude Code, or any client.</p>
+          </div>
+        </div>
+
+        <div class="research-card">
+          <span class="research-num">10</span>
+          <div class="research-body">
+            <span class="research-tag">Context engineering</span>
+            <h3>Adaptive context-window management</h3>
+            <p>Fixed context budgets either waste headroom or silently truncate — sizing the window to the actual conversation avoids both failure modes.</p>
+            <p class="impl"><b>Here:</b> context windows are sized to the live prompt automatically, with a visible context meter and graceful oldest-turn trimming if a request still won't fit.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ desktop ============ -->
+  <section class="section-pad" id="desktop">
+    <div class="wrap">
+      <div class="desktop-strip">
+        <div>
+          <span class="eyebrow"><svg><use href="#i-layers"/></svg> Desktop app</span>
+          <h2 style="margin-top:16px">A native app, not just a browser tab</h2>
+          <p class="lede" style="margin-top:12px;font-size:15.5px">Heap Chat ships as a real Electron app for macOS and Windows — with a menu-bar Quick Ask popover for a fast, global on-ramp into your knowledge base, alongside the full self-hosted web server for LAN/phone access.</p>
+          <div class="platforms">
+            <span class="plat-pill"><svg><use href="#i-apple"/></svg> macOS</span>
+            <span class="plat-pill"><svg><use href="#i-windows"/></svg> Windows</span>
+            <span class="plat-pill"><svg><use href="#i-globe"/></svg> Self-hosted web / PWA</span>
+            <span class="plat-pill"><svg><use href="#i-download"/></svg> Auto-updates via GitHub Releases</span>
+          </div>
+        </div>
+        <div class="quick-mock">
+          <div class="quick-mock-top">
+            <div class="quick-mock-badge"><svg><use href="#i-sparkles"/></svg></div>
+            <div class="quick-mock-input">What can I help you with today?</div>
+            <div class="quick-mock-send"><svg viewBox="0 0 24 24"><path d="M5 12 19.5 5.5 14 20l-2.7-6.3L5 12z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></div>
+          </div>
+          <div class="quick-mock-hint">Global hotkey · answered questions save straight to Recent Chats</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ get started ============ -->
+  <section class="section-pad" id="get-started">
+    <div class="wrap">
+      <div class="getstarted">
+        <div>
+          <span class="eyebrow" style="background:rgba(255,255,255,0.16);color:#fff"><svg><use href="#i-bolt"/></svg> Quick start</span>
+          <h2 style="margin-top:16px">Running locally in under five minutes</h2>
+          <p>You'll need <a href="https://ollama.com" target="_blank" rel="noopener" style="color:#fff;text-decoration:underline">Ollama</a> installed locally with a chat model and an embedding model pulled. Everything else — indexing, embeddings, vision, chat — runs on your machine.</p>
+        </div>
+        <div class="getstarted-actions">
+          <div class="code-block"><span class="c"># clone & install</span>
+git clone https://github.com/sid7631/heapchat.git
+cd heapchat
+cp .env.example .env
+npm install
+npm start</div>
+          <a class="btn" href="https://github.com/sid7631/heapchat#readme" target="_blank" rel="noopener">Read the full docs <svg><use href="#i-arrow"/></svg></a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ footer ============ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="foot-brand"><img src="assets/logo.png" alt="" /><span>Heap Chat</span></div>
+        <p class="foot-note">A local-first knowledge workspace. Every frontend library is vendored, fonts are self-hosted in the app, and nothing phones home. <span class="mono">npm install</span> only touches the network once, for server dependencies.</p>
+      </div>
+      <div class="foot-links">
+        <div class="foot-col">
+          <h4>Product</h4>
+          <a href="#compare">Why Heap Chat</a>
+          <a href="#features">Features</a>
+          <a href="#research">Research patterns</a>
+          <a href="#desktop">Desktop app</a>
+        </div>
+        <div class="foot-col">
+          <h4>Project</h4>
+          <a href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/sid7631/heapchat#readme" target="_blank" rel="noopener">Documentation</a>
+          <a href="https://github.com/sid7631/heapchat/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+          <a href="https://github.com/sid7631/heapchat/issues" target="_blank" rel="noopener">Report an issue</a>
+        </div>
+        <div class="foot-col">
+          <h4>Requires</h4>
+          <a href="https://ollama.com" target="_blank" rel="noopener">Ollama (local models)</a>
+          <a href="https://drawthings.ai" target="_blank" rel="noopener">Draw Things (optional, image gen)</a>
+        </div>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Licensed under the PolyForm Noncommercial License 1.0.0 — free for personal, research, education, and nonprofit use.</span>
+      <span>Built for people who want an AI that actually knows their files — without sending those files anywhere.</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/script.js"></script>
+</body>
+</html>

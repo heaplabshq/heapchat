@@ -6,6 +6,8 @@ Heap Chat is a local-first knowledge workspace: point it at your folders and it 
 
 It ships as both a desktop app (Electron, macOS/Windows) and a self-hosted web server you can run on your LAN and reach from your phone.
 
+![Heap Chat agent answering a question by reading a receipt photo and a budget spreadsheet together, with per-line citations, a self-verification pass, and a Grounded/verified badge](website/assets/screenshots/chat-agent.png)
+
 ---
 
 ## Why Heap Chat
@@ -39,9 +41,21 @@ Where Heap Chat is still catching up: it doesn't yet have voice conversation, a 
 
 ---
 
+## Screenshots
+
+|  |  |
+|---|---|
+| ![Masonry gallery view of an indexed knowledge base — documents and a receipt photo, thumbnails generated automatically](website/assets/screenshots/gallery.png) | ![Settings page showing the provider connection manager, with one-click presets for popular OpenAI-compatible providers](website/assets/screenshots/settings-providers.png) |
+| Every file laid out like a board — including photos, auto-thumbnailed. | Any OpenAI-compatible provider, connected the same way Ollama is: URL, key, test, save. |
+
+*(All screenshots use a small fictional demo dataset made for this purpose — see [`website/demo-fixtures`](website/demo-fixtures) — never real data.)*
+
+---
+
 ## Table of contents
 
 - [How Heap Chat compares](#how-heap-chat-compares)
+- [Screenshots](#screenshots)
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Desktop app](#desktop-app)
