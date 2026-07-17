@@ -2,6 +2,26 @@
 (function () {
   "use strict";
 
+  // mobile nav toggle
+  var burger = document.getElementById("nav-burger");
+  var mobileMenu = document.getElementById("mobile-menu");
+  if (burger && mobileMenu) {
+    function closeMenu() {
+      burger.setAttribute("aria-expanded", "false");
+      mobileMenu.classList.remove("open");
+    }
+    burger.addEventListener("click", function () {
+      var isOpen = mobileMenu.classList.toggle("open");
+      burger.setAttribute("aria-expanded", String(isOpen));
+    });
+    mobileMenu.querySelectorAll("a").forEach(function (link) {
+      link.addEventListener("click", closeMenu);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeMenu();
+    });
+  }
+
   // click-to-zoom on screenshots (mockup hero + showcase rows)
   var shots = document.querySelectorAll(".mockup img, .shot-frame img");
   if (!shots.length) return;

@@ -8,8 +8,16 @@
 <meta property="og:title" content="Heap Chat — the AI workspace that actually knows your files" />
 <meta property="og:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
 <meta property="og:type" content="website" />
+<meta property="og:site_name" content="Heap Chat" />
+<!-- TODO before deploy: og:url/og:image/twitter:image must be absolute URLs on the production domain, or link previews (Slack/X/LinkedIn) won't resolve. -->
+<meta property="og:url" content="/" />
 <meta property="og:image" content="assets/screenshots/chat-agent.png" />
-<meta name="theme-color" content="#4F46E5" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Heap Chat — the AI workspace that actually knows your files" />
+<meta name="twitter:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
+<meta name="twitter:image" content="assets/screenshots/chat-agent.png" />
+<meta name="theme-color" content="#4F46E5" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#17151a" media="(prefers-color-scheme: dark)" />
 <link rel="icon" href="assets/logo.png" />
 <link rel="stylesheet" href="assets/style.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -46,6 +54,8 @@
     <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6.5" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7" cy="7.2" r=".9" fill="currentColor" stroke="none"/><circle cx="7" cy="16.7" r=".9" fill="currentColor" stroke="none"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M9.5 14.5 14.5 9.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M11 6.5 13 4.5a3.7 3.7 0 0 1 5.2 5.2l-2 2M13 17.5l-2 2a3.7 3.7 0 0 1-5.2-5.2l2-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19.5h14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   </defs>
 </svg>
 
@@ -65,11 +75,22 @@
     </nav>
     <div class="nav-cta">
       <a class="btn" href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener">
-        <svg><use href="#i-github"/></svg> GitHub
+        <svg aria-hidden="true"><use href="#i-github"/></svg> GitHub
       </a>
       <a class="btn primary" href="#get-started">Get started</a>
+      <button type="button" class="nav-burger" id="nav-burger" aria-expanded="false" aria-controls="mobile-menu" aria-label="Toggle menu">
+        <svg class="icon-menu" aria-hidden="true"><use href="#i-menu"/></svg>
+        <svg class="icon-close" aria-hidden="true"><use href="#i-close"/></svg>
+      </button>
     </div>
   </div>
+  <nav class="mobile-menu" id="mobile-menu">
+    <a href="#compare">Why Heap Chat</a>
+    <a href="#screenshots">See it in action</a>
+    <a href="#features">Features</a>
+    <a href="#research">Research</a>
+    <a href="#desktop">Desktop app</a>
+  </nav>
 </header>
 
 <main id="top">
@@ -79,18 +100,18 @@
     <div class="wrap">
       <div class="hero-grid">
         <div class="hero-copy">
-          <span class="eyebrow"><svg><use href="#i-sparkles"/></svg> Local-first AI workspace</span>
+          <span class="eyebrow"><svg aria-hidden="true"><use href="#i-sparkles"/></svg> Local-first AI workspace</span>
           <h1>Browse your files like a board.<br>Chat with an AI that <em>actually knows</em> what's in them.</h1>
           <p class="lede">Heap Chat turns your folders into a searchable, chattable knowledge base — powered entirely by a local Ollama model. No cloud dependency, no API keys required, no telemetry. The AI lives with your files permanently, instead of visiting them one upload at a time.</p>
           <div class="hero-actions">
-            <a class="btn primary lg" href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener"><svg><use href="#i-github"/></svg> View on GitHub</a>
-            <a class="btn lg" href="#get-started"><svg><use href="#i-download"/></svg> Get started</a>
+            <a class="btn primary lg" href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-github"/></svg> View on GitHub</a>
+            <a class="btn lg" href="#get-started"><svg aria-hidden="true"><use href="#i-download"/></svg> Get started</a>
           </div>
           <div class="hero-badges">
-            <span class="hero-badge"><svg><use href="#i-check"/></svg> 100% local by default</span>
-            <span class="hero-badge"><svg><use href="#i-check"/></svg> Free & noncommercial-open</span>
-            <span class="hero-badge"><svg><use href="#i-check"/></svg> macOS · Windows · Web/PWA</span>
-            <span class="hero-badge"><svg><use href="#i-check"/></svg> No telemetry, ever</span>
+            <span class="hero-badge"><svg aria-hidden="true"><use href="#i-check"/></svg> 100% local by default</span>
+            <span class="hero-badge"><svg aria-hidden="true"><use href="#i-check"/></svg> Free & noncommercial-open</span>
+            <span class="hero-badge"><svg aria-hidden="true"><use href="#i-check"/></svg> macOS · Windows · Web/PWA</span>
+            <span class="hero-badge"><svg aria-hidden="true"><use href="#i-check"/></svg> No telemetry, ever</span>
           </div>
         </div>
       </div>
@@ -105,38 +126,38 @@
   <section class="section-pad" id="why">
     <div class="wrap">
       <div class="section-head">
-        <span class="eyebrow"><svg><use href="#i-bolt"/></svg> Why Heap Chat</span>
+        <span class="eyebrow"><svg aria-hidden="true"><use href="#i-bolt"/></svg> Why Heap Chat</span>
         <h2>Not just search. Not just a chat wrapper.</h2>
         <p class="lede">Six things Heap Chat treats as first-class, that most AI file tools bolt on as an afterthought — or skip entirely.</p>
       </div>
       <div class="why-grid">
         <div class="card">
-          <div class="card-ico"><svg><use href="#i-shield"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-shield"/></svg></div>
           <h3>Fully local, fully private</h3>
           <p>No data leaves your machine except to your own Ollama server — and only to the web/MCP endpoints you explicitly enable. Nothing phones home, ever.</p>
         </div>
         <div class="card">
-          <div class="card-ico"><svg><use href="#i-workflow"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-workflow"/></svg></div>
           <h3>An agent, not just search</h3>
           <p>A multi-step, tool-using agent reasons over your files, cites its sources, and self-verifies grounded answers before you ever see them.</p>
         </div>
         <div class="card">
-          <div class="card-ico"><svg><use href="#i-image"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-image"/></svg></div>
           <h3>Everything, not just documents</h3>
           <p>Photos, videos, audio, PDFs, Word docs, code, CSVs — with face recognition, a photo map, and a knowledge graph tying it all together.</p>
         </div>
         <div class="card">
-          <div class="card-ico"><svg><use href="#i-brain"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-brain"/></svg></div>
           <h3>Gets smarter over time</h3>
           <p>A learning loop gives it persistent memory, a profile of how you like to be helped, and skills it teaches itself from repeated tasks.</p>
         </div>
         <div class="card">
-          <div class="card-ico"><svg><use href="#i-users"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-users"/></svg></div>
           <h3>Multi-user, real access control</h3>
           <p>Admin/member roles with per-folder grants enforced server-side on every request — not just hidden behind a UI toggle.</p>
         </div>
         <div class="card">
-          <div class="card-ico"><svg><use href="#i-plug"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-plug"/></svg></div>
           <h3>Extensible by design</h3>
           <p>Connect to any MCP server, or expose Heap Chat's own knowledge base as an MCP server to Claude Desktop, Claude Code, or any client.</p>
         </div>
@@ -148,7 +169,7 @@
   <section class="section-pad" id="compare" style="background:var(--surface-2)">
     <div class="wrap">
       <div class="section-head">
-        <span class="eyebrow"><svg><use href="#i-graph"/></svg> How it compares</span>
+        <span class="eyebrow"><svg aria-hidden="true"><use href="#i-graph"/></svg> How it compares</span>
         <h2>The AI lives with your files, permanently</h2>
         <p class="lede">Heap Chat isn't trying to be a smaller ChatGPT. It's built around a different premise — instead of visiting your files one upload at a time, the AI stays with them.</p>
       </div>
@@ -178,14 +199,14 @@
   <section class="section-pad" id="screenshots">
     <div class="wrap">
       <div class="section-head">
-        <span class="eyebrow"><svg><use href="#i-sparkles"/></svg> See it in action</span>
+        <span class="eyebrow"><svg aria-hidden="true"><use href="#i-sparkles"/></svg> See it in action</span>
         <h2>What using it actually looks like</h2>
         <p class="lede">Real screens from the app — no mockups.</p>
       </div>
 
       <div class="showcase-row">
         <div class="showcase-copy">
-          <span class="eyebrow" style="width:fit-content"><svg><use href="#i-folder"/></svg> Browse</span>
+          <span class="eyebrow" style="width:fit-content"><svg aria-hidden="true"><use href="#i-folder"/></svg> Browse</span>
           <h3>Every file, laid out like a board</h3>
           <p>Open a folder or a single file and Heap Chat turns it into a real masonry gallery — thumbnails, video frames, audio waveforms, document previews. Filter by type, sort, and search by name <em>and content</em>, not just filenames.</p>
           <ul>
@@ -199,7 +220,7 @@
 
       <div class="showcase-row rev">
         <div class="showcase-copy">
-          <span class="eyebrow" style="width:fit-content"><svg><use href="#i-workflow"/></svg> Chat & agent</span>
+          <span class="eyebrow" style="width:fit-content"><svg aria-hidden="true"><use href="#i-workflow"/></svg> Chat & agent</span>
           <h3>Every answer, shown its work — then verified</h3>
           <p>Watch the agent search your files live, cite exactly which documents (and photos) it used, and run a self-verification pass before the answer ever reaches you. Here it reads a receipt image and a budget spreadsheet together to answer one question.</p>
           <ul>
@@ -213,7 +234,7 @@
 
       <div class="showcase-row">
         <div class="showcase-copy">
-          <span class="eyebrow" style="width:fit-content"><svg><use href="#i-plug"/></svg> Providers</span>
+          <span class="eyebrow" style="width:fit-content"><svg aria-hidden="true"><use href="#i-plug"/></svg> Providers</span>
           <h3>Bring your own model — local, or ten cloud ones</h3>
           <p>Every provider, including the built-in Ollama connection, gets the exact same flow: a base URL, an API key if it needs one, a live <strong>Test connection</strong> that pulls its real model list, and <strong>Save connection</strong>. No restarts.</p>
           <ul>
@@ -231,108 +252,108 @@
   <section class="section-pad" id="features" style="background:var(--surface-2)">
     <div class="wrap">
       <div class="section-head">
-        <span class="eyebrow"><svg><use href="#i-layers"/></svg> Features</span>
+        <span class="eyebrow"><svg aria-hidden="true"><use href="#i-layers"/></svg> Features</span>
         <h2>Everything a knowledge workspace needs</h2>
         <p class="lede">Every category below ships today — nothing here is a roadmap promise.</p>
       </div>
       <div class="feat-grid">
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-folder"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-folder"/></svg></div>
           <h3>Browse & organize</h3>
           <p>A real masonry gallery over your actual filesystem, not an upload box.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Search by name <strong>and content</strong></li>
-            <li><svg><use href="#i-check"/></svg> Duplicate finder (exact + visually similar)</li>
-            <li><svg><use href="#i-check"/></svg> Command palette (⌘K)</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Search by name <strong>and content</strong></li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Duplicate finder (exact + visually similar)</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Command palette (⌘K)</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-workflow"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-workflow"/></svg></div>
           <h3>Chat & agent</h3>
           <p>A native tool-calling agent that loops until it can answer, over your whole KB, a folder, a file, or a Project.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Live chain-of-steps before the answer</li>
-            <li><svg><use href="#i-check"/></svg> Grounding badge + self-verification pass</li>
-            <li><svg><use href="#i-check"/></svg> Deep-work multi-agent roster</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Live chain-of-steps before the answer</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Grounding badge + self-verification pass</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Deep-work multi-agent roster</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-brain"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-brain"/></svg></div>
           <h3>Knowledge & memory</h3>
           <p>RAG over any folder plus a learning loop that compounds the longer you use it.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Long-term memory, auto-captured</li>
-            <li><svg><use href="#i-check"/></svg> Skills, profile, reflection, scheduler</li>
-            <li><svg><use href="#i-check"/></svg> Multimodal RAG — photos are searchable too</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Long-term memory, auto-captured</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Skills, profile, reflection, scheduler</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Multimodal RAG — photos are searchable too</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-camera"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-camera"/></svg></div>
           <h3>Photos & people</h3>
           <p>On-device face detection, a geotagged photo map, and true visual similarity.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Name a face cluster once, it sticks</li>
-            <li><svg><use href="#i-check"/></svg> EXIF GPS plotted on an interactive map</li>
-            <li><svg><use href="#i-check"/></svg> Perceptual-hash related-image finder</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Name a face cluster once, it sticks</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> EXIF GPS plotted on an interactive map</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Perceptual-hash related-image finder</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-graph"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-graph"/></svg></div>
           <h3>Knowledge graph</h3>
           <p>A fully local, LLM-free entity graph built from people, places, tags, and documents.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Browse individual entities and links</li>
-            <li><svg><use href="#i-check"/></svg> Force-directed overview of everything</li>
-            <li><svg><use href="#i-check"/></svg> Zero LLM calls to build it</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Browse individual entities and links</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Force-directed overview of everything</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Zero LLM calls to build it</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-layers"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-layers"/></svg></div>
           <h3>Projects & custom agents</h3>
           <p>Named workspaces with their own instructions and KB, plus fully custom agents.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Per-agent system prompt & tool toggles</li>
-            <li><svg><use href="#i-check"/></svg> Export/import any agent or chat as JSON</li>
-            <li><svg><use href="#i-check"/></svg> Grouped chat history per project</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Per-agent system prompt & tool toggles</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Export/import any agent or chat as JSON</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Grouped chat history per project</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-image"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-image"/></svg></div>
           <h3>Local image generation</h3>
           <p>Create and edit images entirely offline via a local Draw Things server.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> <span class="mono">/image-create</span> and <span class="mono">/image-edit</span></li>
-            <li><svg><use href="#i-check"/></svg> "Edit with AI" on any gallery photo</li>
-            <li><svg><use href="#i-check"/></svg> No cloud image API involved</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> <span class="mono">/image-create</span> and <span class="mono">/image-edit</span></li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> "Edit with AI" on any gallery photo</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> No cloud image API involved</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-plug"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-plug"/></svg></div>
           <h3>Integrations</h3>
           <p>MCP client <em>and</em> server, keyless web search, and automatic link reading.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Any MCP server by URL, two meta-tools total</li>
-            <li><svg><use href="#i-check"/></svg> Exposes your KB as an MCP server too</li>
-            <li><svg><use href="#i-check"/></svg> Paste a link, it gets read automatically</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Any MCP server by URL, two meta-tools total</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Exposes your KB as an MCP server too</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Paste a link, it gets read automatically</li>
           </ul>
         </div>
 
         <div class="feat-card">
-          <div class="card-ico"><svg><use href="#i-shield"/></svg></div>
+          <div class="card-ico"><svg aria-hidden="true"><use href="#i-shield"/></svg></div>
           <h3>Multi-tenant & security</h3>
           <p>Real accounts from the first launch, not a bolted-on afterthought.</p>
           <ul>
-            <li><svg><use href="#i-check"/></svg> Server-enforced per-folder grants</li>
-            <li><svg><use href="#i-check"/></svg> scrypt-hashed passwords, HttpOnly sessions</li>
-            <li><svg><use href="#i-check"/></svg> Phone/PWA access, gated by the same login</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Server-enforced per-folder grants</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> scrypt-hashed passwords, HttpOnly sessions</li>
+            <li><svg aria-hidden="true"><use href="#i-check"/></svg> Phone/PWA access, gated by the same login</li>
           </ul>
         </div>
 
@@ -344,7 +365,7 @@
   <section class="section-pad" id="research">
     <div class="wrap">
       <div class="section-head">
-        <span class="eyebrow"><svg><use href="#i-brain"/></svg> Under the hood</span>
+        <span class="eyebrow"><svg aria-hidden="true"><use href="#i-brain"/></svg> Under the hood</span>
         <h2>Built on real agent-research patterns, not just plumbing</h2>
         <p class="lede">Heap Chat's agent behavior is assembled from well-established techniques from the LLM-agent literature — implemented concretely, running locally, not just name-dropped.</p>
       </div>
@@ -459,19 +480,19 @@
     <div class="wrap">
       <div class="desktop-strip">
         <div>
-          <span class="eyebrow"><svg><use href="#i-layers"/></svg> Desktop app</span>
+          <span class="eyebrow"><svg aria-hidden="true"><use href="#i-layers"/></svg> Desktop app</span>
           <h2 style="margin-top:16px">A native app, not just a browser tab</h2>
           <p class="lede" style="margin-top:12px;font-size:15.5px">Heap Chat ships as a real Electron app for macOS and Windows — with a menu-bar Quick Ask popover for a fast, global on-ramp into your knowledge base, alongside the full self-hosted web server for LAN/phone access.</p>
           <div class="platforms">
-            <span class="plat-pill"><svg><use href="#i-apple"/></svg> macOS</span>
-            <span class="plat-pill"><svg><use href="#i-windows"/></svg> Windows</span>
-            <span class="plat-pill"><svg><use href="#i-globe"/></svg> Self-hosted web / PWA</span>
-            <span class="plat-pill"><svg><use href="#i-download"/></svg> Auto-updates via GitHub Releases</span>
+            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-apple"/></svg> macOS</span>
+            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows</span>
+            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-globe"/></svg> Self-hosted web / PWA</span>
+            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-download"/></svg> Auto-updates via GitHub Releases</span>
           </div>
         </div>
         <div class="quick-mock">
           <div class="quick-mock-top">
-            <div class="quick-mock-badge"><svg><use href="#i-sparkles"/></svg></div>
+            <div class="quick-mock-badge"><svg aria-hidden="true"><use href="#i-sparkles"/></svg></div>
             <div class="quick-mock-input">What can I help you with today?</div>
             <div class="quick-mock-send"><svg viewBox="0 0 24 24"><path d="M5 12 19.5 5.5 14 20l-2.7-6.3L5 12z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></div>
           </div>
@@ -486,7 +507,7 @@
     <div class="wrap">
       <div class="getstarted">
         <div>
-          <span class="eyebrow" style="background:rgba(255,255,255,0.16);color:#fff"><svg><use href="#i-bolt"/></svg> Quick start</span>
+          <span class="eyebrow" style="background:rgba(255,255,255,0.16);color:#fff"><svg aria-hidden="true"><use href="#i-bolt"/></svg> Quick start</span>
           <h2 style="margin-top:16px">Running locally in under five minutes</h2>
           <p>You'll need <a href="https://ollama.com" target="_blank" rel="noopener" style="color:#fff;text-decoration:underline">Ollama</a> installed locally with a chat model and an embedding model pulled. Everything else — indexing, embeddings, vision, chat — runs on your machine.</p>
         </div>
@@ -497,7 +518,7 @@ cd heapchat
 cp .env.example .env
 npm install
 npm start</div>
-          <a class="btn" href="https://github.com/sid7631/heapchat#readme" target="_blank" rel="noopener">Read the full docs <svg><use href="#i-arrow"/></svg></a>
+          <a class="btn" href="https://github.com/sid7631/heapchat#readme" target="_blank" rel="noopener">Read the full docs <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
         </div>
       </div>
     </div>
