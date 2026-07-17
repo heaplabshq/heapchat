@@ -1,7 +1,7 @@
 /* ============================================================
    Scheduled agents (LEARNING-LOOP-PLAN Part B). A single process-wide ticker
    runs saved agent jobs on a cadence and delivers the result to an activity
-   feed (and optionally saves a note). Turns Cortex from reactive to proactive.
+   feed (and optionally saves a note). Turns Heap Chat from reactive to proactive.
 
    Concurrency is 1 (a single local GPU serializes generation anyway): each tick
    runs at most one due job. Headless runs get NO destructive/interactive tools

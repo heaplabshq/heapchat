@@ -22,7 +22,7 @@ async function mcpConnect(user, server) {
   // 1) resume the saved session (keeps Kite login), 2) fresh StreamableHTTP, 3) SSE
   const attempts = saved ? [{ sessionId: saved, resume: true }, {}] : [{}];
   for (const a of attempts) {
-    const client = new Client({ name: "cortex", version: "1.0.0" }, { capabilities: {} });
+    const client = new Client({ name: "heapchat", version: "1.0.0" }, { capabilities: {} });
     try {
       const transport = new StreamableHTTPClientTransport(new URL(server.url), { ...reqInit, ...(a.sessionId ? { sessionId: a.sessionId } : {}) });
       await client.connect(transport);
@@ -35,7 +35,7 @@ async function mcpConnect(user, server) {
     }
   }
   // SSE fallback (servers that don't speak StreamableHTTP)
-  const client = new Client({ name: "cortex", version: "1.0.0" }, { capabilities: {} });
+  const client = new Client({ name: "heapchat", version: "1.0.0" }, { capabilities: {} });
   const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js");
   await client.connect(new SSEClientTransport(new URL(server.url), reqInit));
   return client;

@@ -1,4 +1,4 @@
-// icons.jsx — refined line-icon set, palettes, and shared helpers (from the Cortex design)
+// icons.jsx — refined line-icon set, palettes, and shared helpers (from the Heap Chat design)
 
 function Icon({ name, size = 18, sw = 1.7, style }) {
   const p = { fill: "none", stroke: "currentColor", strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" };

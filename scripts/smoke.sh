@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cortex smoke test — boots the server against a throwaway data dir, creates an
+# Heap Chat smoke test — boots the server against a throwaway data dir, creates an
 # admin account, and hits one representative endpoint per feature group, asserting
 # HTTP status. Used to confirm the server.js refactor keeps the API wired up.
 #
@@ -14,7 +14,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${SERVER:-server.js}"
 PORT="${PORT:-5199}"
 BASE="http://127.0.0.1:${PORT}"
-DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cortex-smoke-XXXXXX")"
+DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/heapchat-smoke-XXXXXX")"
 COOKIES="${DATA_DIR}/cookies.txt"
 
 pass=0; fail=0
@@ -23,7 +23,7 @@ trap cleanup EXIT
 
 # ---- boot ----
 # exec replaces the subshell with node so $! is node's own PID (kill reaches it on cleanup)
-( cd "$ROOT" && exec env CORTEX_DATA_DIR="$DATA_DIR" PORT="$PORT" HOST=127.0.0.1 node "$SERVER" ) >"$DATA_DIR/server.log" 2>&1 &
+( cd "$ROOT" && exec env HEAPCHAT_DATA_DIR="$DATA_DIR" PORT="$PORT" HOST=127.0.0.1 node "$SERVER" ) >"$DATA_DIR/server.log" 2>&1 &
 SRV_PID=$!
 
 up=""

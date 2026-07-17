@@ -73,12 +73,12 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
       : "your knowledge base";
     const text = isAgent
       ? (target.domain === "kb"
-        ? `Hi — I'm the Cortex **agent**. Ask me anything: I'll answer directly, and search your **knowledge base** when it helps — showing each step.`
-        : `Hi — I'm the Cortex **agent**. I can search, list, and read ${agentDomain} step by step to answer, and you'll see each step as I work.`)
+        ? `Hi — I'm the Heap Chat **agent**. Ask me anything: I'll answer directly, and search your **knowledge base** when it helps — showing each step.`
+        : `Hi — I'm the Heap Chat **agent**. I can search, list, and read ${agentDomain} step by step to answer, and you'll see each step as I work.`)
       : isAssistant
-      ? `Hi — I'm Cortex. Ask me anything. I'll draw on your **knowledge base** when it's relevant and cite the sources.`
+      ? `Hi — I'm Heap Chat. Ask me anything. I'll draw on your **knowledge base** when it's relevant and cite the sources.`
       : isGeneral
-      ? `Hi — I'm Cortex. Ask me anything.`
+      ? `Hi — I'm Heap Chat. Ask me anything.`
       : isFolder
       ? `Hi — ask me anything about everything in **${target.name}**. I search it and answer with citations to the source files.`
       : `Hi — ask me anything about **${target.name}**. I can summarize it, pull out details, or suggest what to do next.`;
@@ -199,7 +199,7 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
   }
   function exportChat() {
     const md = `# Chat · ${target.name}\n\n` + msgs.filter(m => m.text)
-      .map(m => (m.role === "user" ? "**You:**\n\n" : "**Cortex:**\n\n") + m.text).join("\n\n---\n\n");
+      .map(m => (m.role === "user" ? "**You:**\n\n" : "**Heap Chat:**\n\n") + m.text).join("\n\n---\n\n");
     const blob = new Blob([md], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

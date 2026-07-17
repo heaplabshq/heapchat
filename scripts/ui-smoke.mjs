@@ -18,7 +18,7 @@ const PORT = +(process.env.PORT || 5266);
 const CDP = +(process.env.CDP || 9223);
 const BASE = `http://127.0.0.1:${PORT}`;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const SHOTS = (() => { const i = process.argv.indexOf("--shots"); return i > 0 ? process.argv[i + 1] : path.join(os.tmpdir(), "cortex-ui-smoke"); })();
+const SHOTS = (() => { const i = process.argv.indexOf("--shots"); return i > 0 ? process.argv[i + 1] : path.join(os.tmpdir(), "heapchat-ui-smoke"); })();
 // route path → label (SPA reads location.pathname; "" = gallery home)
 const ROUTES = [["", "gallery"], ["chat", "chat"], ["chats", "chats-hub"], ["kb", "knowledge-base"], ["manage", "manage"], ["activity", "activity"], ["settings", "settings"]];
 
@@ -44,10 +44,10 @@ async function main() {
   console.log("[ui-smoke] building bundle…");
   if (spawnSync(process.execPath, [path.join(ROOT, "build", "esbuild.mjs")], { stdio: "inherit" }).status !== 0) process.exit(1);
 
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "cortex-uismoke-data-"));
-  const chromeDir = fs.mkdtempSync(path.join(os.tmpdir(), "cortex-uismoke-chrome-"));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "heapchat-uismoke-data-"));
+  const chromeDir = fs.mkdtempSync(path.join(os.tmpdir(), "heapchat-uismoke-chrome-"));
   const srv = spawn(process.execPath, [path.join(ROOT, "server.js")],
-    { cwd: ROOT, env: { ...process.env, CORTEX_DATA_DIR: dataDir, PORT: String(PORT), HOST: "127.0.0.1" }, stdio: "ignore" });
+    { cwd: ROOT, env: { ...process.env, HEAPCHAT_DATA_DIR: dataDir, PORT: String(PORT), HOST: "127.0.0.1" }, stdio: "ignore" });
   let chrome;
   const rmQuiet = d => { try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {} };
   const cleanup = () => { try { srv.kill(); } catch {} try { chrome && chrome.kill(); } catch {} if (!process.argv.includes("--keep")) { rmQuiet(dataDir); rmQuiet(chromeDir); } };
@@ -56,7 +56,7 @@ async function main() {
   await poll(async () => (await fetch(`${BASE}/api/auth/me`)).status >= 200);
   // create admin → grab the HttpOnly session cookie
   const r = await fetch(`${BASE}/api/auth/setup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "smoke", name: "Smoke", password: "smoke123" }) });
-  const sid = String(r.headers.get("set-cookie") || "").match(/cortex_sid=([^;]+)/)?.[1];
+  const sid = String(r.headers.get("set-cookie") || "").match(/heapchat_sid=([^;]+)/)?.[1];
   if (!sid) throw new Error("no session cookie from /api/auth/setup");
 
   chrome = spawn(CHROME, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
@@ -75,7 +75,7 @@ async function main() {
     if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") errors.push("console.error: " + m.params.args.map(a => a.value || a.description || "").join(" ").split("\n")[0]);
   });
   await c.send("Page.enable"); await c.send("Runtime.enable"); await c.send("Network.enable");
-  await c.send("Network.setCookie", { name: "cortex_sid", value: sid, domain: "127.0.0.1", path: "/", httpOnly: true });
+  await c.send("Network.setCookie", { name: "heapchat_sid", value: sid, domain: "127.0.0.1", path: "/", httpOnly: true });
 
   let pass = 0, fail = 0;
   for (const [route, label] of ROUTES) {

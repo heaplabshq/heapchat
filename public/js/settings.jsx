@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS = {
   topP: 0.9,
   facePhotoCount: 5,   // how many of a person's photos the agent analyzes when asked about their appearance
   systemPrompt:
-    "You are Cortex, a helpful assistant that answers questions about the user's selected file. " +
+    "You are Heap Chat, a helpful assistant that answers questions about the user's selected file. " +
     "Be concise, specific, and ground every answer in the file's actual content and metadata.",
 };
 
@@ -55,13 +55,23 @@ function Slider({ label, hint, value, min, max, step, fmt, onChange }) {
   );
 }
 
-function ModelSelect({ value, models, onChange }) {
+// "nvidia/z-ai/glm-5.2" -> "z-ai/glm-5.2 · NVIDIA" for display — the prefix is an internal
+// routing marker (src/llm/router.js) naming one of the live provider connections, not part of
+// the real model id. Matched against the actual provider list (not a naive first-"/" split)
+// since a provider's own model ids (like NVIDIA's) can contain slashes too.
+function modelOptLabel(m, providers) {
+  if (!m) return m;
+  const hit = (providers || []).find(p => m.startsWith(p.id + "/"));
+  return hit ? m.slice(hit.id.length + 1) + " · " + hit.name : m;
+}
+
+function ModelSelect({ value, models, providers, onChange }) {
   const opts = (models && models.length) ? models : (value ? [value] : []);
   const missing = value && !opts.includes(value);
   return (
     <select className="select mono" style={{ maxWidth: 360, fontSize: 13 }} value={value} onChange={e => onChange(e.target.value)}>
-      {missing && <option value={value}>{value} (not installed)</option>}
-      {opts.map(m => <option key={m} value={m}>{m}</option>)}
+      {missing && <option value={value}>{modelOptLabel(value, providers)} (not installed)</option>}
+      {opts.map(m => <option key={m} value={m}>{modelOptLabel(m, providers)}</option>)}
     </select>
   );
 }
@@ -264,11 +274,10 @@ function AccountSection({ account }) {
     fetch("/api/auth/mcp-token").then(r => r.json()).then(j => setToken(j.token || null)).catch(() => {});
   }, []);
   async function toggleLan() {
-    if (net && net.lanAccess && !window.confirm("Turn off network access? Phones and other devices using Cortex right now will be disconnected.")) return;
+    if (net && net.lanAccess && !window.confirm("Turn off network access? Phones and other devices using Heap Chat right now will be disconnected.")) return;
     const r = await fetch("/api/admin/server", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lanAccess: !(net && net.lanAccess) }) }).then(r => r.json()).catch(() => null);
     if (r) { setNet(r); note(r.lanAccess ? "Network access on" : "Network access off"); }
   }
-
   async function addUser() {
     const r = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) }).then(r => r.json()).catch(() => null);
     if (r && r.id) { setForm({ username: "", name: "", password: "", role: "user" }); loadUsers(); note(`Added ${r.username}`); }
@@ -340,7 +349,7 @@ function AccountSection({ account }) {
           <button className="btn sm" onClick={copyToken}><Icon name="copy" size={13} /> Copy</button>
           <button className="btn sm" onClick={regenToken}><Icon name="refresh" size={13} /> Regenerate</button>
         </div>
-        <span className="field-hint">Lets MCP clients query <b>your</b> knowledge base: <span className="mono">claude mcp add --transport http cortex http://localhost:5174/mcp --header "Authorization: Bearer &lt;token&gt;"</span></span>
+        <span className="field-hint">Lets MCP clients query <b>your</b> knowledge base: <span className="mono">claude mcp add --transport http heapchat http://localhost:5174/mcp --header "Authorization: Bearer &lt;token&gt;"</span></span>
       </div>
 
       {isAdmin && (
@@ -349,12 +358,13 @@ function AccountSection({ account }) {
             <span className="field-label">Network access</span>
             <div className="row-set">
               <div className="col" style={{ gap: 3, minWidth: 0 }}>
-                <span className="field-hint">When on, other devices on your Wi-Fi can reach Cortex (everyone still has to sign in). Applies instantly — no restart.</span>
+                <span className="field-hint">When on, other devices on your Wi-Fi can reach Heap Chat (everyone still has to sign in). Applies instantly — no restart.</span>
                 {net && net.lanAccess && net.urls.map(u => <span key={u} className="t-xs mono" style={{ color: "var(--good)" }}>{u}</span>)}
               </div>
               <button className={"toggle" + (net && net.lanAccess ? " on" : "")} onClick={toggleLan} aria-label="Toggle network access" />
             </div>
           </div>
+
           <div className="field" style={{ marginTop: 14 }}>
             <span className="field-label">Users</span>
             <div className="col" style={{ gap: 10 }}>
@@ -530,49 +540,270 @@ function ImageGenSection({ settings, set }) {
   );
 }
 
-function SettingsPage({ settings, set, onSave, onReset, online, models, account }) {
+// shared "test connection" probe — hits the given base URL/key live and returns its model list
+// ({ ok, models, error }), used both to validate a connection and to populate the model picker
+// before the connection is even saved. type: "ollama" (native /api/tags) | "openai" (GET /models).
+async function testProviderConnection(type, baseUrl, apiKey) {
+  return fetch("/api/admin/providers/test", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, baseUrl, apiKey }),
+  }).then(r => r.json()).catch(() => ({ ok: false, error: "Request failed" }));
+}
+
+// the built-in Ollama connection: base URL + an optional API key (for a secured/proxied
+// Ollama-compatible endpoint — plain local Ollama needs neither). Same test → save flow as
+// every other provider below, it's just not removable.
+function OllamaConnectionField({ ollamaInfo, online, onSaved }) {
+  const [open, setOpen] = React.useState(false);
+  const [form, setForm] = React.useState({ baseUrl: "", apiKey: "" });
+  const [test, setTest] = React.useState(null);   // "busy" | { ok, models, error } | null
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState(null);
+  function note(m) { setMsg(m); setTimeout(() => setMsg(null), 2500); }
+
+  function toggleOpen() {
+    if (open) { setOpen(false); return; }
+    setOpen(true); setTest(null);
+    setForm({ baseUrl: (ollamaInfo && ollamaInfo.baseUrl) || "", apiKey: "" });
+  }
+  async function runTest() { setTest("busy"); setTest(await testProviderConnection("ollama", form.baseUrl, form.apiKey)); }
+  async function save() {
+    setBusy(true);
+    const body = { baseUrl: form.baseUrl.trim() };
+    if (form.apiKey.trim()) body.apiKey = form.apiKey.trim();   // blank = leave the existing key untouched
+    const r = await fetch("/api/admin/providers/ollama", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => null);
+    setBusy(false);
+    if (r) { onSaved(r); setForm(f => ({ ...f, apiKey: "" })); note("Saved — reload to see it everywhere"); }
+    else note("Could not save");
+  }
+
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      <div className="row gap-2" style={{ alignItems: "center" }}>
+        <span className="t-sm semi">Ollama <span className="ink-3" style={{ fontWeight: 400 }}>· local</span></span>
+        <span className="t-xs row gap-1" style={{ color: online ? "var(--good)" : "var(--warn)" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: online ? "var(--good)" : "var(--warn)" }} />
+          {online ? "Connected" : "Offline"}
+        </span>
+        <span className="mono t-xs ink-3">{ollamaInfo && ollamaInfo.baseUrl}</span>
+        <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={toggleOpen}>{open ? "Close" : "Edit connection"}</button>
+      </div>
+
+      {open && (
+        <div className="col" style={{ gap: 8, padding: 12, border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface-2)" }}>
+          <span className="field-label">Base URL</span>
+          <input className="input mono" placeholder="http://localhost:11434" value={form.baseUrl} onChange={e => setForm(f => ({ ...f, baseUrl: e.target.value }))} />
+          <span className="field-label">API key <span className="ink-3" style={{ fontWeight: 400 }}>(only if this endpoint requires one)</span></span>
+          <input className="input mono" type="password" placeholder={ollamaInfo && ollamaInfo.hasKey ? "Leave blank to keep the current key" : "optional"}
+            value={form.apiKey} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} />
+          <div className="row gap-2">
+            <button className="btn sm" disabled={test === "busy" || !form.baseUrl.trim()} onClick={runTest}>{test === "busy" ? "Testing…" : "Test connection"}</button>
+            <button className="btn sm primary" disabled={busy || !form.baseUrl.trim()} onClick={save}>{busy ? "Saving…" : "Save connection"}</button>
+          </div>
+          {test && test !== "busy" && (test.ok
+            ? <span className="t-sm" style={{ color: "var(--good)" }}>Connected — {test.models.length} model{test.models.length === 1 ? "" : "s"} found{test.models.length ? ": " + test.models.slice(0, 6).join(", ") + (test.models.length > 6 ? "…" : "") : ""}</span>
+            : <span className="t-sm" style={{ color: "var(--warn)" }}>Couldn't connect — {test.error}</span>)}
+        </div>
+      )}
+      {msg && <span className="field-hint" style={{ color: "var(--accent)" }}>{msg}</span>}
+    </div>
+  );
+}
+
+// one OpenAI-compatible provider connection — either an existing one (provider set) or a blank
+// "add new" card (provider null). Same test → pick models → save flow throughout.
+// popular OpenAI-compatible providers — a one-click starting point in "Add provider" so the admin
+// doesn't have to go look up a base URL. Every field stays fully editable after picking one (e.g.
+// to point at a regional/enterprise variant), and picking one is entirely optional.
+const PROVIDER_PRESETS = [
+  { name: "OpenAI", baseUrl: "https://api.openai.com/v1" },
+  { name: "NVIDIA", baseUrl: "https://integrate.api.nvidia.com/v1" },
+  { name: "Groq", baseUrl: "https://api.groq.com/openai/v1" },
+  { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
+  { name: "Together AI", baseUrl: "https://api.together.xyz/v1" },
+  { name: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1" },
+  { name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1" },
+  { name: "Mistral", baseUrl: "https://api.mistral.ai/v1" },
+  { name: "xAI (Grok)", baseUrl: "https://api.x.ai/v1" },
+  { name: "Cerebras", baseUrl: "https://api.cerebras.ai/v1" },
+];
+
+function ProviderCard({ provider, onSaved, onDeleted, onCancelNew }) {
+  const isNew = !provider;
+  const [open, setOpen] = React.useState(isNew);
+  const [form, setForm] = React.useState({ name: provider ? provider.name : "", baseUrl: provider ? provider.baseUrl : "", apiKey: "" });
+  const [test, setTest] = React.useState(null);
+  const [selected, setSelected] = React.useState(() => new Set(provider ? provider.models : []));
+  const [agentModel, setAgentModel] = React.useState(provider ? provider.agentModel : "");
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState(null);
+  function note(m) { setMsg(m); setTimeout(() => setMsg(null), 2500); }
+
+  const discovered = (test && test.ok) ? test.models : (provider ? provider.models : []);
+
+  async function runTest() {
+    setTest("busy");
+    const r = await testProviderConnection("openai", form.baseUrl, form.apiKey);
+    setTest(r);
+    if (r.ok) setSelected(new Set(r.models));   // default: everything just discovered is enabled
+  }
+  function toggleModel(m) { setSelected(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; }); }
+  async function save() {
+    if (!form.name.trim() || !form.baseUrl.trim()) { note("Name and base URL are required"); return; }
+    setBusy(true);
+    const models = Array.from(selected);
+    const body = { name: form.name.trim(), baseUrl: form.baseUrl.trim(), models, agentModel: agentModel || models[0] || "" };
+    if (form.apiKey.trim()) body.apiKey = form.apiKey.trim();
+    const url = isNew ? "/api/admin/providers" : `/api/admin/providers/${provider.id}`;
+    const r = await fetch(url, { method: isNew ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => null);
+    setBusy(false);
+    if (r && r.id) { setForm(f => ({ ...f, apiKey: "" })); note("Saved — reload to see it everywhere"); if (isNew) setOpen(false); onSaved(r); }
+    else note((r && r.error) || "Could not save");
+  }
+  async function remove() {
+    if (!window.confirm(`Remove "${provider.name}"? Its models will disappear from every picker.`)) return;
+    setBusy(true);
+    await fetch(`/api/admin/providers/${provider.id}`, { method: "DELETE" }).catch(() => {});
+    setBusy(false);
+    onDeleted(provider.id);
+  }
+
+  if (!open) {
+    return (
+      <div className="row gap-2" style={{ alignItems: "center" }}>
+        <span className="t-sm semi">{provider.name}</span>
+        <span className="t-xs ink-3">{provider.configured ? `Connected · ${provider.models.length} model${provider.models.length === 1 ? "" : "s"}` : "Not connected"}</span>
+        <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={() => setOpen(true)}>Edit</button>
+      </div>
+    );
+  }
+  return (
+    <div className="col" style={{ gap: 8, padding: 12, border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface-2)" }}>
+      {isNew && (
+        <div className="col" style={{ gap: 4, marginBottom: 2 }}>
+          <span className="field-label">Quick add <span className="ink-3" style={{ fontWeight: 400 }}>(or fill in a custom connection below)</span></span>
+          <div className="row gap-2" style={{ flexWrap: "wrap" }}>
+            {PROVIDER_PRESETS.map(p => (
+              <button key={p.name} type="button" className={"chip" + (form.name === p.name && form.baseUrl === p.baseUrl ? " on" : "")}
+                onClick={() => { setForm(f => ({ ...f, name: p.name, baseUrl: p.baseUrl })); setTest(null); }}>
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <span className="field-label">Name</span>
+      <input className="input" placeholder="e.g. OpenAI, Groq, my vLLM server" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+      <span className="field-label">Base URL</span>
+      <input className="input mono" placeholder="https://api.openai.com/v1" value={form.baseUrl} onChange={e => setForm(f => ({ ...f, baseUrl: e.target.value }))} />
+      <span className="field-label">API key</span>
+      <input className="input mono" type="password" placeholder={provider && provider.configured ? "Leave blank to keep the current key" : "sk-..."}
+        value={form.apiKey} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} />
+      <div className="row gap-2">
+        <button className="btn sm" disabled={test === "busy" || !form.baseUrl.trim()} onClick={runTest}>{test === "busy" ? "Testing…" : "Test connection"}</button>
+      </div>
+      {test && test !== "busy" && !test.ok && <span className="t-sm" style={{ color: "var(--warn)" }}>Couldn't connect — {test.error}</span>}
+      {discovered.length > 0 && (
+        <div className="col" style={{ gap: 4 }}>
+          <span className="field-label">Models <span className="ink-3" style={{ fontWeight: 400 }}>({selected.size} of {discovered.length} enabled)</span></span>
+          <div className="col" style={{ gap: 2, maxHeight: 160, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: 6, background: "var(--surface)" }}>
+            {discovered.map(m => (
+              <label key={m} className="row gap-2 t-sm mono" style={{ alignItems: "center", padding: "2px 4px", cursor: "pointer" }}>
+                <input type="checkbox" checked={selected.has(m)} onChange={() => toggleModel(m)} />
+                {m}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {selected.size > 0 && (
+        <div className="col" style={{ gap: 3 }}>
+          <span className="field-label">Default agent model</span>
+          <select className="select mono" style={{ maxWidth: 360, fontSize: 13 }} value={agentModel} onChange={e => setAgentModel(e.target.value)}>
+            {Array.from(selected).map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+      )}
+      <div className="row gap-2">
+        <button className="btn sm primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save connection"}</button>
+        <button className="btn sm" onClick={() => (isNew ? onCancelNew() : setOpen(false))}>Cancel</button>
+        {!isNew && <button className="btn sm" style={{ color: "var(--warn)", marginLeft: "auto" }} onClick={remove} disabled={busy}>Remove</button>}
+      </div>
+      {msg && <span className="field-hint" style={{ color: "var(--accent)" }}>{msg}</span>}
+    </div>
+  );
+}
+
+// admin: full live editor (Ollama + any number of OpenAI-compatible connections), each with its
+// own test → pick models → save flow. Non-admins get a read-only summary from the public config.
+function ProvidersSection({ account, providers, online }) {
+  const isAdmin = account && account.role === "admin";
+  const [list, setList] = React.useState(null);      // GET /api/admin/providers → .providers, admin only
+  const [ollamaInfo, setOllamaInfo] = React.useState(null);
+  const [adding, setAdding] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    fetch("/api/admin/providers").then(r => r.json()).then(j => { setList(j.providers); setOllamaInfo(j.ollama); }).catch(() => {});
+  }, [isAdmin]);
+
+  if (!isAdmin) {
+    return (
+      <div className="col" style={{ gap: 4 }}>
+        <span className="t-sm">Ollama <span className="ink-3">· local</span></span>
+        {providers.map(p => <span key={p.id} className="t-sm">{p.name} <span className="ink-3">· cloud, {p.models.length} model{p.models.length === 1 ? "" : "s"}</span></span>)}
+        {!providers.length && <span className="field-hint">Ask an admin to add a provider connection here to enable more models.</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="col" style={{ gap: 12 }}>
+      {ollamaInfo ? <OllamaConnectionField ollamaInfo={ollamaInfo} online={online} onSaved={setOllamaInfo} /> : <span className="t-sm ink-3">Loading…</span>}
+
+      {list !== null && list.map(p => (
+        <ProviderCard key={p.id} provider={p}
+          onSaved={updated => setList(l => l.map(x => x.id === updated.id ? updated : x))}
+          onDeleted={id => setList(l => l.filter(x => x.id !== id))} />
+      ))}
+
+      {adding
+        ? <ProviderCard provider={null}
+            onSaved={created => { setList(l => [...(l || []), created]); setAdding(false); }}
+            onCancelNew={() => setAdding(false)} />
+        : <button className="btn sm" onClick={() => setAdding(true)}><Icon name="plus" size={13} /> Add provider</button>}
+    </div>
+  );
+}
+
+function SettingsPage({ settings, set, onSave, onReset, online, models, account, providers }) {
   return (
     <div className="settings-scroll scroll">
       <div className="settings-wrap">
         <div className="col" style={{ gap: 4, marginBottom: 22 }}>
           <span className="serif" style={{ fontSize: 28 }}>Settings</span>
-          <span className="ink-3 t-md">Configure the model and how Cortex answers questions about your files.</span>
+          <span className="ink-3 t-md">Configure the model and how Heap Chat answers questions about your files.</span>
         </div>
 
         {/* MODEL */}
         <div className="set-section">
           <div className="set-title"><Icon name="bolt" size={18} style={{ color: "var(--accent)" }} /> Model</div>
-          <div className="set-sub">Cortex runs inference on your local Ollama instance.</div>
+          <div className="set-sub">Heap Chat runs inference on your local Ollama instance.</div>
 
           <div className="field">
-            <span className="field-label">Provider</span>
-            <div className="seg">
-              <button className="on">Ollama <span style={{ opacity: .55, fontWeight: 600 }}>· local</span></button>
-            </div>
-          </div>
-
-          <div className="field">
-            <span className="field-label">Ollama endpoint</span>
-            <div className="row gap-3" style={{ alignItems: "center" }}>
-              <input className="input mono" style={{ maxWidth: 360, fontSize: 13 }} value={settings.endpoint}
-                onChange={e => set({ endpoint: e.target.value })} />
-              <span className="t-xs row gap-1" style={{ color: online ? "var(--good)" : "var(--warn)" }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: online ? "var(--good)" : "var(--warn)" }} />
-                {online ? "Connected" : "Offline"}
-              </span>
-            </div>
-            <span className="field-hint">Set with <span className="mono">OLLAMA_URL</span> in <span className="mono">.env</span>; the server uses that value.</span>
+            <span className="field-label">Providers</span>
+            <ProvidersSection account={account} providers={providers} online={online} />
           </div>
 
           <div className="field">
             <span className="field-label">Default model</span>
-            <ModelSelect value={settings.model} models={models} onChange={m => set({ model: m })} />
+            <ModelSelect value={settings.model} models={models} providers={providers} onChange={m => set({ model: m })} />
             <span className="field-hint">Used for file chat, vision, and quick answers. Images use <span className="mono">OLLAMA_VISION_MODEL</span>.</span>
           </div>
 
           <div className="field">
             <span className="field-label">Default agent model</span>
-            <ModelSelect value={settings.agentModel} models={models} onChange={m => set({ agentModel: m })} />
+            <ModelSelect value={settings.agentModel} models={models} providers={providers} onChange={m => set({ agentModel: m })} />
             <span className="field-hint">Used for the multi-step agent (Chat / Ask folder). A strong tool-caller like <span className="mono">qwen2.5</span> reasons over retrieval better than Gemma, which can over-trust matched text. You can also switch per-chat from the model picker in the composer.</span>
           </div>
         </div>
@@ -585,7 +816,7 @@ function SettingsPage({ settings, set, onSave, onReset, online, models, account 
           <div className="row-set">
             <div className="col" style={{ gap: 3 }}>
               <span className="field-label">Enable thinking</span>
-              <span className="field-hint">When off, Cortex sends no <span className="mono">think</span> flag to Ollama — recommended for fast, direct answers.</span>
+              <span className="field-hint">When off, Heap Chat sends no <span className="mono">think</span> flag to Ollama — recommended for fast, direct answers.</span>
             </div>
             <button className={"toggle" + (settings.thinking ? " on" : "")}
               onClick={() => set({ thinking: !settings.thinking })} aria-label="Toggle thinking" />

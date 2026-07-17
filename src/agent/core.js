@@ -10,7 +10,8 @@ const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 const exifr = require("exifr");
-const { OLLAMA_MODEL, OLLAMA_URL, OLLAMA_KEEP_ALIVE } = require("../config");
+const { OLLAMA_MODEL, OLLAMA_KEEP_ALIVE } = require("../config");
+const ollamaConn = require("../llm/ollama-conn");
 const { kindOf, extOf, fmtSize, fmtDate, TEXTLIKE, isImageFile, safeName } = require("../util/files");
 const { stripThink, fitCtx, snippetFor, buildProvenance } = require("../util/text");
 const { tableSpec, chartSpec, numericCol, seriesRenders, parseRecords, findRecords, rendersFromObjects, RENDER_MIN_ROWS } = require("../media/render");
@@ -26,6 +27,8 @@ const { dtGenerate, dtEdit, dtEcho } = require("../media/drawthings");
 const { saveGeneratedImage } = require("../media/image-prompt");
 const { describeImage } = require("../llm/vision");
 const { completeJSON, completeText } = require("../llm/ollama");
+const { providerOf: modelProviderOf, bareModel: routedBareModel, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("../llm/router");
+const providerLLM = require("../llm/providers");
 const { addMemory, sysInfoBlock } = require("../llm/memory");
 const { addSkill, findSkills, markSkillUsed } = require("../llm/skills");
 const { getTags, setTags, imageMeta, tagStore, faceStore, placeNames, persistTags, persistImageMeta, persistPlaceNames } = require("../state/sidecars");
@@ -196,7 +199,7 @@ const TOOL_REGISTRY = {
       let rephrased = "";
       if (!hits.length || hits[0].score < 0.5) {
         try {
-          const j = await completeJSON(ctx.model || OLLAMA_MODEL,
+          const j = await routedCompleteJSON(ctx.model || OLLAMA_MODEL,
             'You rewrite a search query for semantic document search. Reply ONLY {"query":"…"} — the same information need rephrased with different words/synonyms, phrased the way a document would state it. Keep names, numbers, and identifiers EXACTLY as given.',
             q0, 60);
           const q1 = j && String(j.query || "").trim();
@@ -354,18 +357,26 @@ const TOOL_REGISTRY = {
   save_note: {
     def: { type: "function", function: {
       name: "save_note",
-      description: "Save a note, summary, or answer into the knowledge base as a Markdown file so it's kept and searchable later. Use when the user asks to save, remember, note, jot down, or take notes on something.",
+      description: "Save a note, summary, answer, or generated data into the knowledge base so it's kept and searchable later. Use when the user asks to save, remember, note, jot down, or take notes on something. Defaults to a Markdown note; if `title` ends in .csv/.json/.txt AND `text` is actually in that format, it's saved as a real file of that type (raw, not wrapped in Markdown) so tools like query_csv can use it and it shows with the right file type.",
       parameters: { type: "object", properties: {
-        title: { type: "string" },
-        text: { type: "string", description: "The note body in Markdown. Write it in full and well-structured — a short intro, ## sections, bullet/numbered lists, the key facts, decisions, names, numbers and their sources, and a closing summary or action items. Be thorough, not a one-liner." },
-        images: { type: "array", items: { type: "string" }, description: "Filenames of conversation images to embed in the note, or [\"all\"] for every image in the chat." },
+        title: { type: "string", description: "The note's title. Give it a .csv/.json/.txt extension ONLY if `text` is genuinely raw data in that format — otherwise leave it as a plain title and it's saved as a Markdown note." },
+        text: { type: "string", description: "The content. For a Markdown note: written in full and well-structured — a short intro, ## sections, bullet/numbered lists, the key facts, decisions, names, numbers and their sources, and a closing summary or action items. Be thorough, not a one-liner. For .csv/.json/.txt: the raw file content, nothing else." },
+        images: { type: "array", items: { type: "string" }, description: "Filenames of conversation images to embed in the note, or [\"all\"] for every image in the chat. Markdown notes only." },
       }, required: ["title", "text"] },
     } },
     run: async (args, ctx) => {
       const kb = ctx.kbDir;
-      const base = safeName(String(args.title || "note")).replace(/\.md$/i, "") || "note";
-      let p = path.join(kb, base + ".md"), i = 1;
-      while (fs.existsSync(p)) { p = path.join(kb, `${base} (${i}).md`); i++; }
+      const rawTitle = String(args.title || "note");
+      const dataExt = (rawTitle.match(/\.(csv|json|txt)$/i) || [])[1];
+      const ext = dataExt ? dataExt.toLowerCase() : "md";
+      const base = safeName(rawTitle).replace(/\.[a-z0-9]{1,8}$/i, "") || "note";   // strip ANY existing extension — never double it up (was producing "name.csv.md")
+      let p = path.join(kb, `${base}.${ext}`), i = 1;
+      while (fs.existsSync(p)) { p = path.join(kb, `${base} (${i}).${ext}`); i++; }
+      if (ext !== "md") {   // raw data file — no title-wrapping, images don't apply
+        await fsp.writeFile(p, args.text || "");
+        await buildIndex(kb);
+        return { result: `Saved "${path.basename(p)}" to the knowledge base.`, summary: `saved ${path.basename(p)}`, sources: [{ name: path.basename(p), path: p, score: 1 }] };
+      }
       // embed conversation images the agent asked for (matched by filename, or "all")
       const avail = ctx.convoImages || [];
       const want = (Array.isArray(args.images) ? args.images : []).map(s => String(s).toLowerCase().trim()).filter(Boolean);
@@ -886,13 +897,13 @@ function agentToolMechanics({ autoMem = true, web = false, memory = true, connec
 }
 
 function agentSys(domainLabel, autoMem = true, web = false, deep = false, user = null, memBlock = "", imageGen = false) {
-  if (deep) return "You are Cortex in RESEARCH mode. The user wants a thorough, well-sourced answer — take your time and use many sources.\n" +
+  if (deep) return "You are Heap Chat in RESEARCH mode. The user wants a thorough, well-sourced answer — take your time and use many sources.\n" +
     "Process: (1) break the question into sub-topics; (2) for each, search the user's files (search_docs, find_text, read_file/read_section)" + (web ? " AND the web (run SEVERAL focused web_search queries, then read_url the most promising results in full)" : "") + "; (3) gather corroborating facts from MULTIPLE sources before concluding.\n" +
     "Keep searching and reading until you have solid coverage (you have many steps). Do not stop after one search.\n" +
     "Then write a STRUCTURED REPORT: a short summary, then clear sections with headings, specific facts and figures, and a citation after every claim that came from a source (a URL [like this](url) for web, or the filename in [brackets] for your files). End with a 'Sources' list. Be comprehensive and precise; never pad or invent.\n" +
     "You may include Mermaid diagrams (```mermaid — keep them simple and valid: `flowchart TD` or `sequenceDiagram`, quote node labels that contain spaces/punctuation, avoid special characters) and LaTeX math ($$…$$, \\(…\\)) where they clarify. Call make_chart for any data you want to plot." +
     memBlock;
-  return "You are Cortex, a helpful assistant that can use tools to search and work with " + domainLabel + ". " +
+  return "You are Heap Chat, a helpful assistant that can use tools to search and work with " + domainLabel + ". " +
     "When a request needs the user's files, immediately call the appropriate tool to do it — do NOT describe your capabilities or list what you can do; just perform the task. " +
     "Use search_docs to find content, find_text for an exact string, query_csv for spreadsheet math, read_file/read_section to read a document, extract_table to pull fields from many documents into a table, find_photos_of to find photos of a named person (face recognition); " +
     "only rename, delete, tag, save, or open when the user explicitly asks. " +
@@ -948,12 +959,25 @@ function makeThinkSplitter(onThink, onContent) {
 // stream a completion's tokens to the client (used for the final research report and the drafter).
 // `tag` (optional) labels thinking events with the agent that produced them, for the deep-work UI.
 async function streamReport(model, messages, options, write, tag) {
-  const up = await fetch(`${OLLAMA_URL}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, messages, stream: true, think: false, options }) });
-  if (!up.ok || !up.body) return "";
-  const reader = up.body.getReader(); const dec = new TextDecoder(); let buf = "", content = "";
+  let content = "";
   const split = makeThinkSplitter(
     t => write({ message: { thinking: t, ...(tag ? { agent: tag } : {}) } }),
     c => { content += c; write({ message: { content: c } }); });
+  const _pid = modelProviderOf(model);
+  if (_pid !== "ollama") {
+    try {
+      await providerLLM.streamChatTurn(_pid, {
+        model: routedBareModel(model), messages, temperature: options && options.temperature,
+        onContent: c => split.push(c),
+        onThinking: t => write({ message: { thinking: t, ...(tag ? { agent: tag } : {}) } }),
+      });
+    } catch { return ""; }   // matches the Ollama branch below: fail silently, don't crash the pipeline
+    split.flush();
+    return content;
+  }
+  const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, { method: "POST", headers: ollamaConn.headers(), body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, messages, stream: true, think: false, options }) });
+  if (!up.ok || !up.body) return "";
+  const reader = up.body.getReader(); const dec = new TextDecoder(); let buf = "";
   for (;;) {
     const { value, done } = await reader.read(); if (done) break;
     buf += dec.decode(value, { stream: true });
@@ -1015,7 +1039,7 @@ async function deepResearchPipeline({ q, history, urls = [], chosen, ctx, write,
       // surface the actual failure (rate-limit / blocked / timeout) instead of a bland "no sources found",
       // so the report — and the user — can tell "the web is throttling us" from "nothing exists on this".
       const summary = g.evidence.trim()
-        ? await completeText(chosen, "Summarize the key findings for the SUB-QUESTION using ONLY the evidence. Be specific and thorough: facts, figures, names, dates, and the relationships between them. Cite source URLs or [filenames] inline after each fact. 2-3 tight paragraphs; if the evidence is thin or conflicting, say so explicitly.", `SUB-QUESTION: ${sub}\n\nEVIDENCE:\n${g.evidence}`, 700)
+        ? await routedCompleteText(chosen, "Summarize the key findings for the SUB-QUESTION using ONLY the evidence. Be specific and thorough: facts, figures, names, dates, and the relationships between them. Cite source URLs or [filenames] inline after each fact. 2-3 tight paragraphs; if the evidence is thin or conflicting, say so explicitly.", `SUB-QUESTION: ${sub}\n\nEVIDENCE:\n${g.evidence}`, 700)
         : g.webErr ? `Web search could not fetch sources for this sub-question — ${g.webErr}` : "No sources found for this sub-question.";
       findings.push({ sub, summary });
       const label = (g.webErr && !g.count) ? "search failed — " + g.webErr.slice(0, 40) : `${g.count} sources`;
@@ -1025,7 +1049,7 @@ async function deepResearchPipeline({ q, history, urls = [], chosen, ctx, write,
 
   // 1) plan the investigation (broad coverage)
   write({ step: { name: "plan", args: { q: q.slice(0, 80) } } });
-  const plan = await completeJSON(chosen, "You are a meticulous research planner. Given a question (and any conversation context), return ONLY JSON {\"subqueries\":[...]} with 6-10 focused, non-overlapping sub-questions that TOGETHER cover the topic comprehensively — background/definitions, key players, concrete data/numbers, mechanisms or how-it-works, comparisons/alternatives, challenges/risks, and recent developments. Make each sub-question specific and self-contained, spelling out the REAL names/entities from the conversation — NEVER use placeholders like [Name] or [Topic]. If the question refers to multiple named entities, cover each one.", q + convoBlock, 700);
+  const plan = await routedCompleteJSON(chosen, "You are a meticulous research planner. Given a question (and any conversation context), return ONLY JSON {\"subqueries\":[...]} with 6-10 focused, non-overlapping sub-questions that TOGETHER cover the topic comprehensively — background/definitions, key players, concrete data/numbers, mechanisms or how-it-works, comparisons/alternatives, challenges/risks, and recent developments. Make each sub-question specific and self-contained, spelling out the REAL names/entities from the conversation — NEVER use placeholders like [Name] or [Topic]. If the question refers to multiple named entities, cover each one.", q + convoBlock, 700);
   const subs = (plan && Array.isArray(plan.subqueries) && plan.subqueries.length ? plan.subqueries : [q]).map(String).filter(Boolean).slice(0, 10);
   write({ step_result: { name: "plan", summary: `${subs.length} sub-questions`, detail: subs.map((s, i) => `${i + 1}. ${s}`).join("\n") } });
 
@@ -1037,7 +1061,7 @@ async function deepResearchPipeline({ q, history, urls = [], chosen, ctx, write,
     const host = (() => { try { return new URL(url).hostname; } catch { return url; } })();
     if (text && text.trim()) {
       sourceMap.set(url, host);
-      const summary = await completeText(chosen, "Summarize what this page says that is relevant to the QUESTION. Be specific: facts, figures, names, dates. Cite the page URL inline. 2-4 tight paragraphs.", `QUESTION: ${q}\n\nPAGE (${url}):\n${text.slice(0, 12000)}`, 700);
+      const summary = await routedCompleteText(chosen, "Summarize what this page says that is relevant to the QUESTION. Be specific: facts, figures, names, dates. Cite the page URL inline. 2-4 tight paragraphs.", `QUESTION: ${q}\n\nPAGE (${url}):\n${text.slice(0, 12000)}`, 700);
       findings.push({ sub: `Pasted link: ${host}`, summary });
       write({ step_result: { name: "read_url", summary: `read ${host}`, detail: summary } });
     } else {
@@ -1051,7 +1075,7 @@ async function deepResearchPipeline({ q, history, urls = [], chosen, ctx, write,
 
   // 3) gap analysis → a second wave that drills into what the first pass left open (iterative deepening)
   write({ step: { name: "plan", args: { q: "follow-up gaps" } } });
-  const gapPlan = await completeJSON(chosen, "You review research findings for gaps. Given the QUESTION and the FINDINGS gathered so far, return ONLY JSON {\"subqueries\":[...]} with up to 4 NEW, specific follow-up questions that dig into what is still missing, unclear, unquantified, or contradictory — or [] if coverage is already thorough. Do not repeat earlier questions.", `QUESTION: ${q}\n\nFINDINGS SO FAR:\n${findings.map(f => `- ${f.sub}: ${f.summary.slice(0, 240)}`).join("\n")}`, 500);
+  const gapPlan = await routedCompleteJSON(chosen, "You review research findings for gaps. Given the QUESTION and the FINDINGS gathered so far, return ONLY JSON {\"subqueries\":[...]} with up to 4 NEW, specific follow-up questions that dig into what is still missing, unclear, unquantified, or contradictory — or [] if coverage is already thorough. Do not repeat earlier questions.", `QUESTION: ${q}\n\nFINDINGS SO FAR:\n${findings.map(f => `- ${f.sub}: ${f.summary.slice(0, 240)}`).join("\n")}`, 500);
   const follow = (gapPlan && Array.isArray(gapPlan.subqueries) ? gapPlan.subqueries : []).map(String).filter(Boolean).slice(0, 4);
   write({ step_result: { name: "plan", summary: follow.length ? `${follow.length} follow-up question${follow.length === 1 ? "" : "s"}` : "coverage looks complete", detail: follow.map((s, i) => `${i + 1}. ${s}`).join("\n") } });
   if (follow.length) await runWave(follow);
@@ -1238,7 +1262,7 @@ async function runAgentTurn({ agent, task, chosen, ctx, write, toolOpts, context
   // otherwise just report the situation.
   if (agent.tools && (!defs || !defs.length)) {
     if (agent.noSourcesRole) {
-      const brief = await completeText(model, agent.noSourcesRole + sysInfoBlock(), task, agent.maxTokens || 1500, agent.temperature ?? 0.3);
+      const brief = await routedCompleteText(model, agent.noSourcesRole + sysInfoBlock(), task, agent.maxTokens || 1500, agent.temperature ?? 0.3);
       if (brief && brief.trim()) return brief.trim();
     }
     return "No external sources are available (the user's files and the web are both off) — nothing to research. The drafter should work from general knowledge.";
@@ -1248,23 +1272,27 @@ async function runAgentTurn({ agent, task, chosen, ctx, write, toolOpts, context
     const promptChars = msgs.reduce((n, m) => n + String(m.content || "").length + 50, defs ? 4000 : 500);
     const need = Math.ceil(promptChars / 3) + (agent.maxTokens || 1500) + 256;
     const numCtx = Math.max(contextWindow || 0, [4096, 8192, 16384, 32768, 65536, 131072].find(b => b >= need) || 131072);
-    let j;
+    let content, toolCalls;
     try {
-      const up = await fetch(`${OLLAMA_URL}/api/chat`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, messages: msgs, stream: false, think: false,
-          ...(defs ? { tools: defs } : {}),
-          options: { temperature: agent.temperature ?? 0.4, num_predict: agent.maxTokens || 1500, num_ctx: numCtx } }),
-      });
-      if (!up.ok) break;
-      j = await up.json();
+      if (modelProviderOf(model) !== "ollama") {
+        const r = await providerLLM.completeWithTools(modelProviderOf(model), { model: routedBareModel(model), messages: msgs, tools: defs, temperature: agent.temperature ?? 0.4, maxTokens: agent.maxTokens || 1500 });
+        content = r.content; toolCalls = r.toolCalls;
+      } else {
+        const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+          method: "POST", headers: ollamaConn.headers(),
+          body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, messages: msgs, stream: false, think: false,
+            ...(defs ? { tools: defs } : {}),
+            options: { temperature: agent.temperature ?? 0.4, num_predict: agent.maxTokens || 1500, num_ctx: numCtx } }),
+        });
+        if (!up.ok) break;
+        const j = await up.json();
+        const m = j.message || {};
+        content = stripThink(m.content || ""); toolCalls = m.tool_calls || [];
+      }
     } catch { break; }
-    const m = j.message || {};
-    const content = stripThink(m.content || "");
-    const toolCalls = m.tool_calls || [];
     if (content) finalText = content;
     if (!toolCalls.length) break;
-    msgs.push({ role: "assistant", content: m.content || "", tool_calls: toolCalls });
+    msgs.push({ role: "assistant", content, tool_calls: toolCalls });
     for (const tc of toolCalls) {
       const fname = tc.function && tc.function.name;
       const fargs = tc.function && tc.function.arguments;
@@ -1279,7 +1307,9 @@ async function runAgentTurn({ agent, task, chosen, ctx, write, toolOpts, context
       }
       write({ step_result: { name: fname, summary, detail: typeof result === "string" ? result.slice(0, 4000) : "", agent: tag } });
       if (richRender && Array.isArray(render)) render.forEach(spec => write({ render: spec }));
-      msgs.push({ role: "tool", content: typeof result === "string" ? result : JSON.stringify(result) });
+      // tool_call_id links this result back to the assistant's tool call — required by NVIDIA/OpenAI-
+      // compatible providers; Ollama doesn't need it and tc.id is simply absent for that path.
+      msgs.push({ role: "tool", content: typeof result === "string" ? result : JSON.stringify(result), ...(tc.id ? { tool_call_id: tc.id } : {}) });
     }
   }
   return finalText;
@@ -1299,7 +1329,7 @@ function criticIsApproved(text) {
 async function pickNextAgent({ chosen, roster, task, transcript, fallback }) {
   const sys = ORCH_SYS_BASE + roster.map(a => `- ${a.kind}: ${a.whenToUse}`).join("\n") +
     "\n- DONE: a reviewed draft answer is ready.";
-  const j = await completeJSON(chosen, sys, `TASK:\n${task}\n\nTRANSCRIPT SO FAR:\n${transcript || "(nothing yet)"}\n\nWho should act next?`, 120);
+  const j = await routedCompleteJSON(chosen, sys, `TASK:\n${task}\n\nTRANSCRIPT SO FAR:\n${transcript || "(nothing yet)"}\n\nWho should act next?`, 120);
   let next = j && j.next ? String(j.next).toLowerCase().trim() : "";
   if (next !== "done" && !roster.some(a => a.kind === next)) next = fallback();   // invalid pick → deterministic
   return { next, reason: (j && j.reason) || "" };
@@ -1360,7 +1390,7 @@ async function multiAgentPipeline({ q, history, chosen, ctx, write, temperature,
       draftedToBubble = true;
     } else {   // subsequent revision → replace the bubble text
       write({ step: { name: "agent:drafter", args: { revision: true }, agent: tagFor("drafter") } });
-      const fixed = await completeText(drafterModel, sys, user, nump, drafterAgent.temperature ?? temperature);
+      const fixed = await routedCompleteText(drafterModel, sys, user, nump, drafterAgent.temperature ?? temperature);
       const changed = fixed && fixed.trim() && fixed.trim() !== answerText.trim();
       if (changed) { answerText = fixed.trim(); write({ revision: { text: answerText } }); }   // replaces the bubble in place
       // be honest: only claim a revision when the text actually changed
@@ -1405,7 +1435,7 @@ async function multiAgentPipeline({ q, history, chosen, ctx, write, temperature,
   if (factCheck && acc.evidence.length && allText.trim() && (used.length || acc.searched)) {
     write({ step: { name: "fact_check", args: {} } });
     const evidenceText = acc.evidence.map(e => `[${e.source}]\n${e.text}`).join("\n\n").slice(0, 7000);
-    const v = await completeJSON(chosen, VERIFY_SYS, `EVIDENCE:\n${evidenceText}\n\nANSWER:\n${allText.trim().slice(0, 3500)}`);
+    const v = await routedCompleteJSON(chosen, VERIFY_SYS, `EVIDENCE:\n${evidenceText}\n\nANSWER:\n${allText.trim().slice(0, 3500)}`);
     const cleanIssues = arr => Array.isArray(arr) ? arr.map(s => String(s).trim()).filter(s => s && !/^(none|n\/?a|null|no issues?|nothing)$/i.test(s)).slice(0, 3) : [];
     if (v && v.verdict) {
       verification = { verdict: String(v.verdict).toLowerCase(), issues: cleanIssues(v.issues) };

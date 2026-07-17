@@ -87,7 +87,7 @@ function OllamaSetup({ onDone, onModel, onSkip }) {
       <div className="setup-card">
         <div className="setup-brand">
           <div className="brand-mark"><Icon name="layers" size={22} sw={2} /></div>
-          <span className="x-bold tighter" style={{ fontSize: 20 }}>Cortex</span>
+          <span className="x-bold tighter" style={{ fontSize: 20 }}>Heap Chat</span>
         </div>
 
         {phase === "loading" && (
@@ -99,7 +99,7 @@ function OllamaSetup({ onDone, onModel, onSkip }) {
         {phase === "down" && (
           <>
             <h2 className="setup-title">Connect a local AI engine</h2>
-            <p className="setup-sub">Cortex runs entirely on your machine using <b>Ollama</b> — a free, local AI runner. Install it once, then come back here.</p>
+            <p className="setup-sub">Heap Chat runs entirely on your machine using <b>Ollama</b> — a free, local AI runner. Install it once, then come back here.</p>
             <ol className="setup-steps">
               <li><b>Download &amp; install Ollama</b> for your system.</li>
               <li>Open it (it runs quietly in the background).</li>
@@ -164,7 +164,7 @@ function OllamaSetup({ onDone, onModel, onSkip }) {
               <h2 className="setup-title" style={{ textAlign: "center" }}>You're all set</h2>
               <p className="setup-sub" style={{ textAlign: "center" }}>Ollama is running with {info.models.length} model{info.models.length === 1 ? "" : "s"} installed.</p>
             </div>
-            <button className="btn primary" style={{ width: "100%", marginTop: 8 }} onClick={onDone}><Icon name="sparkles" size={15} /> Start using Cortex</button>
+            <button className="btn primary" style={{ width: "100%", marginTop: 8 }} onClick={onDone}><Icon name="sparkles" size={15} /> Start using Heap Chat</button>
           </>
         )}
       </div>

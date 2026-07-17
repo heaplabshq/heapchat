@@ -33,7 +33,7 @@ function ChatMessage({ m, i, isLast, busy, onOpenPath, editMsg, decideAction, co
   }
   return (
     <div className="msg">
-      <div className="msg-by"><Icon name="sparkles" size={13} /> Cortex</div>
+      <div className="msg-by"><Icon name="sparkles" size={13} /> Heap Chat</div>
       {(() => {
         const onCite = onOpenPath ? (e => {
           const a = e.target.closest("a.cite");

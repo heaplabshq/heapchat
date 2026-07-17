@@ -330,7 +330,7 @@ function PeopleView({ folder, onClose }) {
           <div className="col center" style={{ padding: "48px 0", gap: 14, textAlign: "center" }}>
             <Icon name="brain" size={34} style={{ color: "var(--accent)", opacity: .5 }} />
             <div className="x-bold" style={{ fontSize: 16 }}>Find people in your photos</div>
-            <div className="ink-3 t-sm" style={{ maxWidth: 360 }}>Cortex will scan <b>{total}</b> photo{total === 1 ? "" : "s"} in <b>{folder.name}</b>, group the faces, and let you name and browse people. Runs entirely on your device.</div>
+            <div className="ink-3 t-sm" style={{ maxWidth: 360 }}>Heap Chat will scan <b>{total}</b> photo{total === 1 ? "" : "s"} in <b>{folder.name}</b>, group the faces, and let you name and browse people. Runs entirely on your device.</div>
             <button className="btn primary" style={{ marginTop: 4 }} disabled={!total} onClick={runScan}><Icon name="sparkles" size={15} /> Scan for faces</button>
           </div>
         ) : phase === "scanning" ? (
@@ -344,7 +344,7 @@ function PeopleView({ folder, onClose }) {
           <div className="col center" style={{ padding: "48px 0", gap: 12, textAlign: "center" }}>
             <Icon name="brain" size={32} style={{ color: "var(--ink-4)", opacity: .4 }} />
             <div className="x-bold" style={{ fontSize: 15 }}>No faces found</div>
-            <div className="ink-3 t-sm" style={{ maxWidth: 320 }}>Cortex didn't detect any faces in these photos.</div>
+            <div className="ink-3 t-sm" style={{ maxWidth: 320 }}>Heap Chat didn't detect any faces in these photos.</div>
           </div>
         ) : (
           <>

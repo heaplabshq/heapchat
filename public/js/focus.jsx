@@ -13,13 +13,137 @@ const TEXT_EXT = new Set([
   "h", "hpp", "sql", "ini", "toml", "env", "conf", "svg", "rtf", "gitignore",
 ]);
 const MD_EXT = new Set(["md", "markdown"]);
+const CSV_EXT = new Set(["csv", "tsv"]);
 
-// fetch-and-show real text/code contents
+// proper quote-aware CSV/TSV parser (handles delimiters and newlines inside "quoted" fields) —
+// naive text.split(",") breaks on real spreadsheet exports the moment a field is quoted.
+function parseCSV(text, delim) {
+  const rows = []; let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === delim) { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c === "\r") { /* skip — \n follows in \r\n line endings */ }
+    else field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.length > 1 || r[0] !== "");   // drop a trailing blank line's empty row
+}
+
+function detectDelim(text) { return (text.includes("\t") && !(text.split("\n")[0] || "").includes(",")) ? "\t" : ","; }
+
+// render CSV/TSV as a real table, matching the chat's query_csv table styling (.rb-table*)
+const CSV_ROW_CAP = 1000;
+function CsvTable({ text }) {
+  const parsed = React.useMemo(() => parseCSV(text, detectDelim(text)), [text]);
+  if (!parsed.length) return <div className="t-sm ink-3">Empty file.</div>;
+  const [header, ...rows] = parsed;
+  const shown = rows.slice(0, CSV_ROW_CAP);
+  return (
+    <div>
+      <div className="rb-table-bar">
+        <span className="t-xs ink-3">{rows.length} row{rows.length === 1 ? "" : "s"} · {header.length} col{header.length === 1 ? "" : "s"}</span>
+      </div>
+      <div className="rb-table-wrap">
+        <table className="rb-table">
+          <thead><tr>{header.map((c, i) => <th key={i}>{c}</th>)}</tr></thead>
+          <tbody>{shown.map((r, ri) => <tr key={ri}>{header.map((_, ci) => <td key={ci}>{r[ci] ?? ""}</td>)}</tr>)}</tbody>
+        </table>
+        {rows.length > shown.length && <div className="t-xs ink-3" style={{ padding: "6px 2px 0" }}>+{rows.length - shown.length} more rows — use Edit or Download for the full file</div>}
+      </div>
+    </div>
+  );
+}
+
+// serialize a 2D array back to CSV text — same quoting convention as renders.jsx's downloadCSV:
+// quote a field only if it contains the delimiter, a quote, or a newline; double internal quotes.
+function serializeCSV(rows, delim) {
+  const esc = v => { const s = v == null ? "" : String(v); return new RegExp(`["${delim}\\n]`).test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  return rows.map(r => r.map(esc).join(delim)).join("\n");
+}
+
+// editable grid — keeps the table structure visible while editing instead of dropping to raw text.
+// `rows` is [header, ...body] (2D array); onChange(nextRows) reports every edit up to the parent.
+function CsvEditor({ rows, onChange, delim }) {
+  const header = rows[0] || [];
+  const cellStyle = { width: "100%", border: "none", background: "transparent", font: "inherit", fontSize: 12.5, padding: "6px 8px", color: "inherit" };
+  function setCell(ri, ci, val) { const next = rows.map(r => r.slice()); next[ri] = next[ri].slice(); next[ri][ci] = val; onChange(next); }
+  function addRow() { onChange([...rows, header.map(() => "")]); }
+  function delRow(ri) { onChange(rows.filter((_, i) => i !== ri)); }
+  function addCol() { onChange(rows.map((r, i) => [...r, i === 0 ? `Column ${r.length + 1}` : ""])); }
+  function delCol(ci) { onChange(rows.map(r => r.filter((_, i) => i !== ci))); }
+
+  return (
+    <div>
+      <div className="rb-table-wrap">
+        <table className="rb-table">
+          <thead>
+            <tr>
+              {header.map((c, ci) => (
+                <th key={ci} style={{ padding: 0 }}>
+                  <div className="row" style={{ alignItems: "center" }}>
+                    <input value={c} onChange={e => setCell(0, ci, e.target.value)} style={cellStyle} placeholder={`Column ${ci + 1}`} />
+                    {header.length > 1 && <button className="btn icon sm ghost" onClick={() => delCol(ci)} title="Delete column" style={{ flex: "none", width: 22, height: 22 }}><Icon name="x" size={11} /></button>}
+                  </div>
+                </th>
+              ))}
+              <th style={{ width: 30 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(1).map((r, i) => {
+              const ri = i + 1;
+              return (
+                <tr key={ri}>
+                  {header.map((_, ci) => (
+                    <td key={ci} style={{ padding: 0 }}>
+                      <input value={r[ci] ?? ""} onChange={e => setCell(ri, ci, e.target.value)} style={cellStyle} />
+                    </td>
+                  ))}
+                  <td style={{ padding: 0, textAlign: "center" }}>
+                    <button className="btn icon sm ghost" onClick={() => delRow(ri)} title="Delete row" style={{ width: 22, height: 22 }}><Icon name="x" size={11} /></button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="row gap-2" style={{ marginTop: 10 }}>
+        <button className="btn sm" onClick={addRow}><Icon name="plus" size={13} /> Row</button>
+        <button className="btn sm" onClick={addCol}><Icon name="plus" size={13} /> Column</button>
+      </div>
+    </div>
+  );
+}
+
+// extensions the server will actually accept a save for (src/util/files.js TEXTLIKE) — a strict
+// subset of TEXT_EXT above, which also covers a few formats (scss/less/etc.) that render fine but
+// historically weren't in the write-allowlist. Keep this mirrored with server.js's TEXTLIKE.
+const EDITABLE_EXT = new Set([
+  "txt", "md", "markdown", "csv", "tsv", "json", "xml", "yml", "yaml", "html", "htm",
+  "css", "scss", "less", "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "go", "rs", "java",
+  "rb", "php", "sh", "bash", "zsh", "c", "cpp", "cc", "h", "hpp", "sql", "ini", "toml",
+  "env", "conf", "log", "rtf", "svg", "gitignore",
+]);
+
+// fetch-and-show real text/code contents, with an in-place editor (Edit → textarea → Save)
 function TextPreview({ file }) {
   const [state, setState] = React.useState({ loading: true, text: "", error: null, truncated: false });
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");         // non-CSV edit draft (raw text)
+  const [draftRows, setDraftRows] = React.useState(null);   // CSV edit draft (2D array incl. header)
+  const [saving, setSaving] = React.useState(false);
+  const [saveErr, setSaveErr] = React.useState(null);
+
   React.useEffect(() => {
     let alive = true;
     setState({ loading: true, text: "", error: null, truncated: false });
+    setEditing(false); setSaveErr(null);
     fetch(fileUrl(file.path))
       .then(r => { if (!r.ok) throw new Error("Could not read file"); return r.text(); })
       .then(t => {
@@ -33,22 +157,64 @@ function TextPreview({ file }) {
   }, [file.id]);
 
   const isMd = MD_EXT.has(file.ext);
+  const isCsv = CSV_EXT.has(file.ext);
+  const canEdit = EDITABLE_EXT.has(file.ext) && !state.truncated;
+  const delim = isCsv ? detectDelim(state.text) : ",";
+
+  function startEdit() {
+    setSaveErr(null);
+    if (isCsv) { let rows = parseCSV(state.text, delim); if (!rows.length) rows = [[""]]; setDraftRows(rows); }
+    else setDraft(state.text);
+    setEditing(true);
+  }
+  const content = isCsv ? (draftRows ? serializeCSV(draftRows, delim) : state.text) : draft;
+  const dirty = content !== state.text;
+  async function save() {
+    setSaving(true); setSaveErr(null);
+    const r = await fetch("/api/file", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: file.path, content }) })
+      .then(r => r.json()).catch(() => null);
+    setSaving(false);
+    if (r && r.ok) { setState(s => ({ ...s, text: content })); setEditing(false); }
+    else setSaveErr((r && r.error) || "Could not save — try again.");
+  }
 
   return (
     <div className="preview preview-doc scroll">
-      <div className="doc-sheet" style={{ maxWidth: isMd ? 720 : 860 }}>
+      <div className="doc-sheet" style={{ maxWidth: isMd ? 720 : isCsv ? "100%" : 860 }}>
+        {!state.loading && !state.error && (
+          <div className="row gap-2" style={{ marginBottom: 12, justifyContent: "flex-end" }}>
+            {editing ? (
+              <>
+                {saveErr && <span className="t-xs" style={{ color: "var(--warn)", marginRight: "auto" }}>{saveErr}</span>}
+                <button className="btn sm" onClick={() => { setEditing(false); setSaveErr(null); }} disabled={saving}>Cancel</button>
+                <button className="btn sm primary" onClick={save} disabled={saving || !dirty}>{saving ? <><span className="spin-mini" /> Saving…</> : "Save"}</button>
+              </>
+            ) : canEdit ? (
+              <button className="btn sm" onClick={startEdit}><Icon name="edit" size={13} /> Edit</button>
+            ) : state.truncated ? (
+              <span className="t-xs ink-3" title="Files over 300 KB can't be edited here yet">Too large to edit here</span>
+            ) : null}
+          </div>
+        )}
         {state.loading ? (
           <div className="col center" style={{ padding: 40, color: "var(--ink-3)" }}>
             <span className="dots"><span /><span /><span /></span>
           </div>
         ) : state.error ? (
           <div className="callout warn"><Icon name="alert" size={16} /><span>{state.error}</span></div>
+        ) : editing && isCsv ? (
+          <CsvEditor rows={draftRows || [[""]]} onChange={setDraftRows} delim={delim} />
+        ) : editing ? (
+          <textarea className="textarea mono" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
+            style={{ width: "100%", minHeight: 420, fontSize: 12.5, lineHeight: 1.6, resize: "vertical" }} />
         ) : isMd ? (
           fmt(state.text)
+        ) : isCsv ? (
+          <CsvTable text={state.text} />
         ) : (
           <pre className="codeblock"><code>{state.text}</code></pre>
         )}
-        {state.truncated && (
+        {state.truncated && !editing && (
           <div className="row gap-2" style={{ marginTop: 14, color: "var(--ink-3)" }}>
             <Icon name="info" size={14} /> <span className="t-xs">Showing the first 300 KB — open or download for the full file.</span>
           </div>

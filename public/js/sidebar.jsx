@@ -36,11 +36,11 @@ function Sidebar({
   const generatedActive = folder && folder.generated && view === "gallery";
   const folderActive = folder && !folder.kb && !folder.generated && !folder.single && view === "gallery";
 
-  const [accent, setAccentState] = useState(() => localStorage.getItem("cortex.accent") || "#4F46E5");
+  const [accent, setAccentState] = useState(() => localStorage.getItem("heapchat.accent") || "#4F46E5");
   useEffect(() => { applyAccent(accent); }, []);
 
   function setAccent(hex) {
-    localStorage.setItem("cortex.accent", hex);
+    localStorage.setItem("heapchat.accent", hex);
     setAccentState(hex);
     applyAccent(hex);
   }
@@ -55,7 +55,7 @@ function Sidebar({
         <div className="brand-mark">
           <Icon name="layers" size={18} sw={2} />
         </div>
-        <span className="brand-name">Cortex</span>
+        <span className="brand-name">Heap Chat</span>
         <button className="side-collapse" onClick={toggleSide}
           title={sideCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
           <Icon name={sideCollapsed ? "chevR" : "chevL"} size={16} />
@@ -246,4 +246,4 @@ function Sidebar({
   );
 }
 
-export { Sidebar };
+export { Sidebar, applyAccent };

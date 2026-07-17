@@ -6,7 +6,8 @@
    ============================================================ */
 const fsp = require("fs/promises");
 const path = require("path");
-const { OLLAMA_URL, OLLAMA_KEEP_ALIVE, OLLAMA_VISION_MODEL } = require("../config");
+const { OLLAMA_KEEP_ALIVE, OLLAMA_VISION_MODEL } = require("../config");
+const ollamaConn = require("./ollama-conn");
 const { imageMeta, persistImageMeta } = require("../state/sidecars");
 
 // stored searchable text for an image, if a fresh description exists (mtime matches)
@@ -30,8 +31,8 @@ async function describeImage(filePath, context = "", instructions = "") {
       "Write a dense factual paragraph." +
       (context ? `\n\nUser context to incorporate: "${context}"` : ""), images: [b64] },
   ];
-  const r = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+  const r = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+    method: "POST", headers: ollamaConn.headers(),
     body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE,
       model: OLLAMA_VISION_MODEL, stream: false, think: false,
       messages,
@@ -49,8 +50,8 @@ async function describeImage(filePath, context = "", instructions = "") {
 // core: send a base64 image to the vision model. json=true → parse a JSON object; else return text. (OCR — fully local)
 async function visionReadB64(b64, prompt, json) {
   try {
-    const r = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+      method: "POST", headers: ollamaConn.headers(),
       body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model: OLLAMA_VISION_MODEL, stream: false, think: false, messages: [{ role: "user", content: prompt, images: [b64] }], options: { temperature: 0 } }),
     });
     if (!r.ok) return json ? null : "";

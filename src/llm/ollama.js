@@ -1,14 +1,15 @@
 /* Non-streaming completions against the local Ollama chat API.
    completeJSON → parsed JSON object (or null); completeText → plain text.
    Both size num_ctx to the prompt (fitCtx) and strip <think> blocks. */
-const { OLLAMA_URL, OLLAMA_KEEP_ALIVE } = require("../config");
+const { OLLAMA_KEEP_ALIVE } = require("../config");
+const ollamaConn = require("./ollama-conn");
 const { stripThink, fitCtx } = require("../util/text");
 
 // one non-streaming model call that returns parsed JSON (or null)
 async function completeJSON(model, sys, user, maxTokens = 300) {
   try {
-    const up = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+    const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+      method: "POST", headers: ollamaConn.headers(),
       body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, stream: false, think: false, messages: [{ role: "system", content: sys }, { role: "user", content: user }], options: { temperature: 0, num_predict: maxTokens, num_ctx: fitCtx(sys, user, maxTokens) } }),
     });
     if (!up.ok) return null;
@@ -22,8 +23,8 @@ async function completeJSON(model, sys, user, maxTokens = 300) {
 // a single non-streaming text completion
 async function completeText(model, sys, user, maxTokens = 600, temperature = 0.3) {
   try {
-    const up = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+    const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+      method: "POST", headers: ollamaConn.headers(),
       body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, stream: false, think: false, messages: [{ role: "system", content: sys }, { role: "user", content: user }], options: { temperature, num_predict: maxTokens, num_ctx: fitCtx(sys, user, maxTokens) } }),
     });
     if (!up.ok) return "";

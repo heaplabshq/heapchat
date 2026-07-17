@@ -1,29 +1,31 @@
-# Cortex
+# Heap Chat
 
 **Browse your files like a Pinterest board. Chat with a local AI that actually knows what's in them.**
 
-Cortex is a local-first knowledge workspace: point it at your folders and it turns them into a searchable, chattable knowledge base — powered entirely by a local [Ollama](https://ollama.com) model. No cloud dependency, no API keys, no telemetry. Everything — indexing, embeddings, vision, chat — runs on your machine.
+Heap Chat is a local-first knowledge workspace: point it at your folders and it turns them into a searchable, chattable knowledge base — powered by a local [Ollama](https://ollama.com) model by default. No cloud dependency, no API keys, no telemetry required. Everything — indexing, embeddings, vision, chat — runs on your machine unless you deliberately opt into a cloud model (an admin can connect any OpenAI-compatible provider — NVIDIA, OpenAI, Groq, a local vLLM, ... — as an additional, optional source of models — see [Configuration](#configuration)).
 
 It ships as both a desktop app (Electron, macOS/Windows) and a self-hosted web server you can run on your LAN and reach from your phone.
 
+![Heap Chat agent answering a question by reading a receipt photo and a budget spreadsheet together, with per-line citations, a self-verification pass, and a Grounded/verified badge](website/assets/screenshots/chat-agent.png)
+
 ---
 
-## Why Cortex
+## Why Heap Chat
 
 - **Fully local, fully private.** No data leaves your machine except to your own Ollama server (and only to the web/MCP endpoints you explicitly enable).
 - **Not just search — an agent.** A multi-step, tool-using agent reasons over your files, cites its sources, and self-verifies grounded answers before you see them.
 - **Everything, not just documents.** Photos, videos, audio, PDFs, Word docs, code, CSVs — with face recognition, a photo map, and a knowledge graph tying it all together.
 - **Gets smarter over time.** A learning loop gives it persistent memory, a profile of how you like to be helped, and skills it teaches itself from repeated tasks.
 - **Multi-user, real access control.** Admin/member roles with per-folder grants enforced server-side, not just hidden in the UI.
-- **Extensible.** Connect to any MCP server, or expose Cortex's own knowledge base as an MCP server to Claude Desktop/Code.
+- **Extensible.** Connect to any MCP server, or expose Heap Chat's own knowledge base as an MCP server to Claude Desktop/Code.
 
 ---
 
-## How Cortex compares
+## How Heap Chat compares
 
-Cortex isn't trying to be a smaller ChatGPT — it's built around a different premise: **the AI lives with your files, permanently, instead of visiting them one upload at a time.**
+Heap Chat isn't trying to be a smaller ChatGPT — it's built around a different premise: **the AI lives with your files, permanently, instead of visiting them one upload at a time.**
 
-| | ChatGPT / Claude | Open WebUI | Cortex |
+| | ChatGPT / Claude | Open WebUI | Heap Chat |
 |---|---|---|---|
 | Runs fully offline / local-only | No | Yes | **Yes** |
 | Memory that reflects, decays, and learns a profile of you | Shallow flat facts | No | **Yes** — typed memory, episodic reflection, auto-built profile |
@@ -33,14 +35,27 @@ Cortex isn't trying to be a smaller ChatGPT — it's built around a different pr
 | Multi-user with server-enforced, per-folder access control | N/A (single-user) | Yes | **Yes** |
 | Background agent jobs on a schedule | No | No | **Yes** — digests to feed/note/notification |
 | MCP client *and* server | Varies | Client only | **Both** |
+| Optional cloud model as a second provider | N/A | Yes (many) | **Yes** — any OpenAI-compatible API, admin-configured, full agent + tool-calling support |
 
-Where Cortex is still catching up: it doesn't yet have voice conversation, a split-pane editable canvas, or a mobile-first layout — all real gaps against the hosted apps, tracked openly rather than glossed over. What it trades those for is an AI that actually accumulates context about your files and you, permanently, without any of it leaving your machine.
+Where Heap Chat is still catching up: it doesn't yet have voice conversation, a split-pane editable canvas, or a mobile-first layout — all real gaps against the hosted apps, tracked openly rather than glossed over. What it trades those for is an AI that actually accumulates context about your files and you, permanently, without any of it leaving your machine.
+
+---
+
+## Screenshots
+
+|  |  |
+|---|---|
+| ![Masonry gallery view of an indexed knowledge base — documents and a receipt photo, thumbnails generated automatically](website/assets/screenshots/gallery.png) | ![Settings page showing the provider connection manager, with one-click presets for popular OpenAI-compatible providers](website/assets/screenshots/settings-providers.png) |
+| Every file laid out like a board — including photos, auto-thumbnailed. | Any OpenAI-compatible provider, connected the same way Ollama is: URL, key, test, save. |
+
+*(All screenshots use a small fictional demo dataset made for this purpose — see [`website/demo-fixtures`](website/demo-fixtures) — never real data.)*
 
 ---
 
 ## Table of contents
 
-- [How Cortex compares](#how-cortex-compares)
+- [How Heap Chat compares](#how-heap-chat-compares)
+- [Screenshots](#screenshots)
 - [Features](#features)
 - [Quick start](#quick-start)
 - [Desktop app](#desktop-app)
@@ -84,7 +99,7 @@ Where Cortex is still catching up: it doesn't yet have voice conversation, a spl
 - **Knowledge base** — upload files (text/code, CSV, PDF, Word) into a personal KB, auto-indexed for retrieval, with **Ask KB** to chat across everything you've added.
 - **Ask the whole folder (RAG)** — chat about everything in a folder and its subfolders, with a vector index cached and incrementally updated on disk, and clickable source citations.
 - **Long-term memory** — the assistant remembers durable facts and preferences about you across every chat, auto-captured with strict dedup/merge rules, or added explicitly ("remember that…"). Manage entries any time.
-- **Learning loop** — Cortex improves the more you use it:
+- **Learning loop** — Heap Chat improves the more you use it:
   - **Skills** — reusable step-by-step procedures the agent saves after solving a repeatable task, recalled by similarity when a similar task comes up again.
   - **Profile** — a synthesized summary of who you are and how you like to be helped, injected into every conversation and rebuilt automatically as your memory grows.
   - **Reflection** — an opt-in pass that reviews finished chats and quietly corrects memory/skills.
@@ -94,7 +109,7 @@ Where Cortex is still catching up: it doesn't yet have voice conversation, a spl
 ### Photos & people
 
 - **Photo Map** — geotagged photos plotted on an interactive map (EXIF GPS), with popups linking straight back to each photo.
-- **People** — on-device face detection and clustering. Name a cluster once (typing an existing name merges clusters), re-scan individual photos, and manage everyone Cortex has recognized.
+- **People** — on-device face detection and clustering. Name a cluster once (typing an existing name merges clusters), re-scan individual photos, and manage everyone Heap Chat has recognized.
 - **Discovery & media smarts** — EXIF metadata with a map link for geotagged shots, and a **Related files** strip: documents by content-embedding similarity, images by true visual similarity (perceptual hashing — finds bursts, crops, and edits, not just similar-sounding descriptions).
 - **Lightbox** — fullscreen image viewer with click-to-zoom and keyboard navigation through the folder.
 
@@ -115,7 +130,7 @@ Where Cortex is still catching up: it doesn't yet have voice conversation, a spl
 ### Integrations
 
 - **MCP client.** Point the agent at any remote MCP server by URL (Settings → Connectors) — it gets two meta-tools (`list_connectors`, `use_connector`) so any number of connectors only ever adds two tools to the agent's toolbox. Sessions persist across restarts.
-- **MCP server.** Cortex also exposes its own knowledge-base tools over Streamable HTTP at `/mcp`, so Claude Desktop, Claude Code, or any MCP client can search and read your KB directly.
+- **MCP server.** Heap Chat also exposes its own knowledge-base tools over Streamable HTTP at `/mcp`, so Claude Desktop, Claude Code, or any MCP client can search and read your KB directly.
 - **Web search (opt-in, keyless)** — DuckDuckGo-backed search tool, no API key required. Returns link cards and image grids inline, with citations that plug into the grounding badge.
 - **Paste a link, get it read** — drop a URL into a chat message and the agent automatically fetches and reads the page as context, no extra step needed (or use `/read` to do it on demand without the model deciding).
 
@@ -129,8 +144,8 @@ Where Cortex is still catching up: it doesn't yet have voice conversation, a spl
 ## Quick start
 
 ```bash
-git clone https://github.com/sid7631/cortex.git
-cd cortex
+git clone https://github.com/sid7631/heapchat.git
+cd heapchat
 cp .env.example .env      # then edit .env — see Configuration below
 npm install
 npm start                 # or: npm run dev (auto-restart on changes)
@@ -142,7 +157,7 @@ You'll need [Ollama](https://ollama.com) running locally with at least a chat mo
 
 ## Desktop app
 
-Cortex also runs as a native Electron app.
+Heap Chat also runs as a native Electron app.
 
 ```bash
 npm run desktop      # run the desktop shell locally
@@ -174,9 +189,27 @@ HOST=127.0.0.1
 
 `.env` is git-ignored; never committed.
 
+### Provider connections (Ollama + any OpenAI-compatible API)
+
+Every model provider — including the built-in local Ollama connection — is managed the same way, entirely from **Settings → Model → Providers** (admin-only edits; every signed-in user sees which are live): give it a **base URL** and an **API key** if it needs one, click **Test connection** to probe it live and pull down its real model list, pick which of those models to enable, and **Save connection**. Nothing needs a server restart.
+
+- **Ollama** is built-in and can't be removed, but its base URL and an optional API key (for a secured/proxied Ollama-compatible endpoint) are editable the same way as any other connection.
+- **Add any OpenAI-compatible provider** — [NVIDIA](https://build.nvidia.com), OpenAI itself, Groq, Together, Fireworks, a local vLLM/LM Studio server, anything that speaks the standard `/v1/chat/completions` + `/v1/models` wire format. Add as many as you want; each gets its own name, connection, and model allowlist. Full agent + tool-calling support everywhere a model is selectable, including deep research and the deep-work multi-agent roster, not just plain chat.
+
+Keys are stored server-side and masked everywhere they're displayed — never sent to or readable from a non-admin browser session, and never overridable on a per-request basis by any user, admin or not. Enabled models from every provider show up in every model picker, prefixed `<providerId>/` internally (e.g. `nvidia/z-ai/glm-5.2`) to route requests to the right connection — the UI always shows the real model name.
+
+If you'd rather seed the built-in Ollama connection or a first NVIDIA connection via `.env` (e.g. for a first boot before an admin logs in), that still works — the app UI takes precedence once something's been saved there, `.env` is just the fallback default:
+
+```
+OLLAMA_URL=http://localhost:11434
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_MODELS=z-ai/glm-5.2
+```
+
 ## Accounts & multi-tenant
 
-Cortex is multi-user from the first launch. Create the admin account on the setup screen; every API route then requires a signed-in session (HttpOnly cookie, scrypt-hashed passwords).
+Heap Chat is multi-user from the first launch. Create the admin account on the setup screen; every API route then requires a signed-in session (HttpOnly cookie, scrypt-hashed passwords).
 
 - **Private per user:** knowledge base, chat history, long-term memory, MCP connectors, and MCP token.
 - **Disk access is role-based with default-deny.** Admins see the whole machine; members see only their private KB until an admin grants them specific folder roots (Settings → Users → Folders, subfolders included). Grants are enforced on every path-taking endpoint, with symlinks resolved so a grant can't be escaped.
@@ -185,7 +218,7 @@ Cortex is multi-user from the first launch. Create the admin account on the setu
 
 ## Phone / LAN access
 
-Set `HOST=0.0.0.0` in `.env` and the startup banner prints your network URL (e.g. `http://192.168.x.x:5174`) — open it on your phone, sign in, and **Add to Home Screen** to install Cortex as a PWA. Every request still requires login, so LAN exposure is gated by accounts and folder grants. Default is `127.0.0.1` (this machine only).
+Set `HOST=0.0.0.0` in `.env` and the startup banner prints your network URL (e.g. `http://192.168.x.x:5174`) — open it on your phone, sign in, and **Add to Home Screen** to install Heap Chat as a PWA. Every request still requires login, so LAN exposure is gated by accounts and folder grants. Default is `127.0.0.1` (this machine only).
 
 ## Security
 
@@ -237,7 +270,7 @@ npm run eval          # run the agent eval suite against a fixture KB
 
 ## License
 
-Cortex is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free to use, modify, and share for any noncommercial purpose (personal, research, education, nonprofit). Commercial use, including selling it or offering it as part of a paid product or service, is not permitted without a separate license from the author.
+Heap Chat is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free to use, modify, and share for any noncommercial purpose (personal, research, education, nonprofit). Commercial use, including selling it or offering it as part of a paid product or service, is not permitted without a separate license from the author.
 
 ---
 

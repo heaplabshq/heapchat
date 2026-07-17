@@ -51,14 +51,14 @@ function parseCookies(req) {
   return out;
 }
 function userFromRequest(req) {
-  const sess = authSessions[parseCookies(req).cortex_sid];
+  const sess = authSessions[parseCookies(req).heapchat_sid];
   return (sess && users.find(u => u.id === sess.userId)) || null;
 }
 function startSession(res, user) {
   const sid = newToken();
   authSessions[sid] = { userId: user.id, createdAt: Date.now(), lastSeen: Date.now() };
   persistAuthSessions();
-  res.setHeader("Set-Cookie", `cortex_sid=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000`);
+  res.setHeader("Set-Cookie", `heapchat_sid=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000`);
 }
 // first account adopts the single-tenant data layout: move kb/, chats, memory, mcp into its dir
 // and re-key the path-keyed sidecars so vision descriptions/tags/hashes of old KB files survive.

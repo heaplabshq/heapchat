@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* eval/run.js — agent regression harness.
-   Boots a throwaway Cortex instance in a temp dir (own data/, fixture KB),
+   Boots a throwaway Heap Chat instance in a temp dir (own data/, fixture KB),
    runs the golden questions through /api/agent, and scores the answers.
 
      node eval/run.js                  # all questions, models from .env
@@ -36,7 +36,7 @@ const golden = JSON.parse(fs.readFileSync(path.join(__dirname, "golden.json"), "
 
 async function main() {
   // ---- sandbox ----
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cortex-eval-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "heapchat-eval-"));
   fs.mkdirSync(path.join(dir, "data"));
   fs.symlinkSync(path.join(ROOT, "node_modules"), path.join(dir, "node_modules"));
   fs.symlinkSync(path.join(ROOT, "public"), path.join(dir, "public"));
@@ -48,7 +48,7 @@ async function main() {
     // pin the data dir to the sandbox: src/ is symlinked, so config.js's __dirname
     // resolves to the real repo (Node follows symlinks) — without this the server
     // would read the real data/ instead of the isolated sandbox copy.
-    `CORTEX_DATA_DIR=${path.join(dir, "data")}`,
+    `HEAPCHAT_DATA_DIR=${path.join(dir, "data")}`,
     `PORT=${PORT}`,
     `OLLAMA_URL=${env.OLLAMA_URL || "http://localhost:11434"}`,
     `OLLAMA_MODEL=${agentModel}`,
