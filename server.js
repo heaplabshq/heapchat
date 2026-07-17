@@ -1,5 +1,5 @@
 /* ============================================================
-   Cortex — local server
+   Heap Chat — local server
    - Browses the real filesystem for the folder picker
    - Lists a folder's files with metadata for the gallery
    - Streams file bytes for thumbnails / previews
@@ -19,7 +19,8 @@ const { Jimp } = require("jimp");       // pixel access for perceptual image has
 
 /* ---- extracted modules (see SERVER-REFACTOR-PLAN.md) — re-bound into local scope
    so existing call sites are unchanged ---- */
-const { DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE } = require("./src/config");
+const { DATA_DIR, PORT, HOST, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE } = require("./src/config");
+const ollamaConn = require("./src/llm/ollama-conn");
 const { writeJSONAtomic } = require("./src/util/json-store");
 const { TEXTLIKE, MIME, DESCRIBABLE_IMG, extOf, kindOf, fmtSize, fmtDate, isImageFile, safeName } = require("./src/util/files");
 const { buildProvenance } = require("./src/util/text");
@@ -42,8 +43,8 @@ const { reverseGeocode, graphCache, graphFor, ensurePhotoGeo, docExcerptsFor, gr
 const { dtEcho, dtGenerate, dtEdit } = require("./src/media/drawthings");
 const { enhancePrompt, saveGeneratedImage } = require("./src/media/image-prompt");
 const { completeJSON, completeText } = require("./src/llm/ollama");
-const { providerOf: modelProviderOf, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("./src/llm/router");
-const nvidiaLLM = require("./src/llm/nvidia");
+const { providerOf: modelProviderOf, bareModel: routedBareModel, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("./src/llm/router");
+const providerLLM = require("./src/llm/providers");
 const { mcpEnabled, mcpPublic, forgetSession, dropMcpClient, mcpListTools, mcpCallTool } = require("./src/mcp/client");
 const { addMemory, memPublic, sysInfoBlock, memoryBlock, scheduleEpisode, scheduleTitle, cancelUserTimers } = require("./src/llm/memory");
 const { addSkill, updateSkill, removeSkill, skillsBlock, skillPublic } = require("./src/llm/skills");
@@ -57,7 +58,7 @@ const app = express();
 app.use(express.json({ limit: "64mb" }));   // base64 file uploads from chat attachments come through JSON
 app.use(express.static(path.join(__dirname, "public")));
 
-// DATA_DIR resolved in src/config.js (honors CORTEX_DATA_DIR for the desktop wrapper).
+// DATA_DIR resolved in src/config.js (honors HEAPCHAT_DATA_DIR for the desktop wrapper).
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 /* ============================================================
@@ -97,9 +98,9 @@ app.post("/api/auth/login", (req, res) => {
   res.json({ user: publicUser(u) });
 });
 app.post("/api/auth/logout", (req, res) => {
-  delete authSessions[parseCookies(req).cortex_sid];
+  delete authSessions[parseCookies(req).heapchat_sid];
   persistAuthSessions();
-  res.setHeader("Set-Cookie", "cortex_sid=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0");
+  res.setHeader("Set-Cookie", "heapchat_sid=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0");
   res.json({ ok: true });
 });
 
@@ -187,7 +188,7 @@ app.get("/api/config", (req, res) => {
   const generated = path.join(kb, "generated");
   try { fs.mkdirSync(generated, { recursive: true }); } catch {}
   res.json({
-    endpoint: OLLAMA_URL,
+    endpoint: ollamaConn.baseUrl(),
     model: OLLAMA_MODEL,
     visionModel: OLLAMA_VISION_MODEL,
     agentModel: OLLAMA_AGENT_MODEL,
@@ -198,8 +199,9 @@ app.get("/api/config", (req, res) => {
     role: req.user.role,
     userId: req.user.id,
     folders: req.user.folders || [],
-    nvidiaEnabled: serverSettings.getNvidiaConfig().enabled,
-    nvidiaAgentModel: serverSettings.getNvidiaConfig().enabled ? "nvidia/" + serverSettings.getNvidiaConfig().agentModel : "",
+    // public info only (no keys) — which OpenAI-compatible provider connections are live, for
+    // the model pickers to know a "<providerId>/<model>" string is real; see src/llm/router.js
+    providers: serverSettings.listProviders().filter(p => p.apiKey).map(p => ({ id: p.id, name: p.name, models: p.models || [], agentModel: p.agentModel || "" })),
   });
 });
 
@@ -1386,7 +1388,7 @@ app.delete("/api/skills/:id", (req, res) => {
   res.json({ ok: removeSkill(req.user, req.params.id) });
 });
 
-/* ---------------- user profile: the synthesized "what Cortex knows about you" ---------------- */
+/* ---------------- user profile: the synthesized "what Heap Chat knows about you" ---------------- */
 app.get("/api/profile", (req, res) => res.json({ profile: storesFor(req.user).profile || null }));
 app.post("/api/profile/rebuild", async (req, res) => {
   try {
@@ -1455,7 +1457,7 @@ app.get("/api/notifications", (req, res) => {
   const pending = st.digests.filter(d => d.notify && !d.notified);
   if (pending.length) { pending.forEach(d => { d.notified = true; }); st.save("digests.json"); }
   res.json({ notifications: pending.map(d => ({
-    id: d.id, title: d.jobName || "Cortex",
+    id: d.id, title: d.jobName || "Heap Chat",
     body: (d.text || "").replace(/[#*`>_]/g, "").replace(/\s+/g, " ").trim().slice(0, 160),
   })) });
 });
@@ -1574,17 +1576,12 @@ function maskSecret(s) {
   if (!s || s.length < 10) return s ? "••••" : "";
   return s.slice(0, 6) + "••••" + s.slice(-4);
 }
-// network access: read + toggle the bind address live (no restart). Also the NVIDIA provider's
-// API key/base URL/model allowlist — admin-only, server-side, never echoed back raw (see
-// maskSecret above) and never settable by anyone but an admin (src/state/server-settings.js).
+// network access: read + toggle the bind address live (no restart). Provider connections
+// (Ollama + any OpenAI-compatible ones) live under /api/admin/providers below.
 app.get("/api/admin/server", (req, res) => {
   if (!requireAdmin(req, res)) return;
   const scfg = serverSettings.get();
-  const nv = serverSettings.getNvidiaConfig();
-  res.json({
-    lanAccess: !!scfg.lanAccess, urls: scfg.lanAccess ? lanUrls() : [], port: PORT,
-    nvidia: { configured: nv.enabled, keyPreview: maskSecret(nv.apiKey), baseUrl: nv.baseUrl, models: nv.models, agentModel: nv.agentModel },
-  });
+  res.json({ lanAccess: !!scfg.lanAccess, urls: scfg.lanAccess ? lanUrls() : [], port: PORT });
 });
 app.put("/api/admin/server", (req, res) => {
   if (!requireAdmin(req, res)) return;
@@ -1592,19 +1589,8 @@ app.put("/api/admin/server", (req, res) => {
   const scfg = serverSettings.get();
   const want = b.lanAccess !== undefined ? !!b.lanAccess : !!scfg.lanAccess;
   const changed = want !== !!scfg.lanAccess;
-  const patch = { lanAccess: want };
-  // NVIDIA fields: only touch what's actually sent, so saving lanAccess alone never wipes the key.
-  // An explicit empty string clears that field back to the .env default (or off, for the key).
-  if (b.nvidiaApiKey !== undefined) patch.nvidiaApiKey = String(b.nvidiaApiKey).trim();
-  if (b.nvidiaBaseUrl !== undefined) patch.nvidiaBaseUrl = String(b.nvidiaBaseUrl).trim();
-  if (b.nvidiaAgentModel !== undefined) patch.nvidiaAgentModel = String(b.nvidiaAgentModel).trim();
-  if (b.nvidiaModels !== undefined) patch.nvidiaModels = String(b.nvidiaModels).split(",").map(s => s.trim()).filter(Boolean);
-  serverSettings.update(patch);
-  const nv = serverSettings.getNvidiaConfig();
-  res.json({
-    lanAccess: want, urls: want ? lanUrls() : [], rebinding: changed,
-    nvidia: { configured: nv.enabled, keyPreview: maskSecret(nv.apiKey), baseUrl: nv.baseUrl, models: nv.models, agentModel: nv.agentModel },
-  });
+  serverSettings.update({ lanAccess: want });
+  res.json({ lanAccess: want, urls: want ? lanUrls() : [], rebinding: changed });
   if (!changed) return;
   setTimeout(() => {   // after the response flushes: release the listener, rebind on the new interface
     const old = httpServer;
@@ -1612,6 +1598,90 @@ app.put("/api/admin/server", (req, res) => {
     bindServer();
     setTimeout(() => { try { old.closeAllConnections(); } catch {} }, 2000);   // drop lingering keep-alive sockets on the old bind
   }, 300);
+});
+
+/* ---------------- provider connections: Ollama (built-in) + any number of OpenAI-compatible
+   providers (NVIDIA, OpenAI, Groq, a local vLLM, ...) — admin-only, server-side. "Test" probes a
+   URL/key live and returns its model list, used both to validate the connection and to populate
+   the model dropdown before it's even saved. Keys are never echoed back raw (see maskSecret). */
+app.get("/api/admin/providers", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const oll = serverSettings.getOllamaConfig();
+  res.json({
+    ollama: { baseUrl: oll.baseUrl, hasKey: !!oll.apiKey, keyPreview: maskSecret(oll.apiKey) },
+    providers: serverSettings.listProviders().map(p => ({
+      id: p.id, name: p.name, baseUrl: p.baseUrl, models: p.models || [], agentModel: p.agentModel || "",
+      configured: !!p.apiKey, keyPreview: maskSecret(p.apiKey),
+    })),
+  });
+});
+// probe any base URL/key combo live, before it's saved — "type" picks the wire protocol used to
+// list models: Ollama's native /api/tags, or the OpenAI-compatible GET /models.
+app.post("/api/admin/providers/test", async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { type, apiKey } = req.body || {};
+  const baseUrl = String((req.body || {}).baseUrl || "").trim().replace(/\/+$/, "");
+  if (!baseUrl) return res.json({ ok: false, error: "Base URL is required" });
+  const authHeaders = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  try {
+    if (type === "ollama") {
+      const r = await fetch(`${baseUrl}/api/tags`, { headers: authHeaders, signal: AbortSignal.timeout(6000) });
+      if (!r.ok) return res.json({ ok: false, error: `HTTP ${r.status}` });
+      const j = await r.json();
+      return res.json({ ok: true, models: (j.models || []).map(m => m.name).sort((a, b) => a.localeCompare(b)) });
+    }
+    const r = await fetch(`${baseUrl}/models`, { headers: authHeaders, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) { const d = await r.text().catch(() => ""); return res.json({ ok: false, error: `HTTP ${r.status}${d ? ": " + d.slice(0, 200) : ""}` }); }
+    const j = await r.json();
+    const models = (j.data || []).map(m => m.id).sort((a, b) => a.localeCompare(b));
+    return res.json({ ok: true, models });
+  } catch (e) {
+    return res.json({ ok: false, error: e.message || "Connection failed" });
+  }
+});
+// the built-in Ollama connection: URL + optional API key (for a secured/proxied Ollama-compatible
+// endpoint — real local Ollama doesn't need one). Always exists, can't be removed, only edited.
+app.put("/api/admin/providers/ollama", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const b = req.body || {};
+  const patch = {};
+  if (b.baseUrl !== undefined) patch.baseUrl = String(b.baseUrl).trim().replace(/\/+$/, "");
+  if (b.apiKey !== undefined) patch.apiKey = String(b.apiKey).trim();
+  const oll = serverSettings.updateOllama(patch);
+  res.json({ baseUrl: oll.baseUrl, hasKey: !!oll.apiKey, keyPreview: maskSecret(oll.apiKey) });
+});
+app.post("/api/admin/providers", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const b = req.body || {};
+  const name = String(b.name || "").trim();
+  const baseUrl = String(b.baseUrl || "").trim().replace(/\/+$/, "");
+  if (!name || !baseUrl) return res.status(400).json({ error: "Name and base URL are required" });
+  const p = serverSettings.createProvider({
+    name, baseUrl, apiKey: String(b.apiKey || "").trim(),
+    models: Array.isArray(b.models) ? b.models.map(String) : [], agentModel: String(b.agentModel || "").trim(),
+  });
+  res.json({ id: p.id, name: p.name, baseUrl: p.baseUrl, models: p.models, agentModel: p.agentModel, configured: !!p.apiKey, keyPreview: maskSecret(p.apiKey) });
+});
+app.put("/api/admin/providers/:id", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const existing = serverSettings.getProvider(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const b = req.body || {};
+  const patch = {};
+  if (b.name !== undefined) patch.name = String(b.name).trim();
+  if (b.baseUrl !== undefined) patch.baseUrl = String(b.baseUrl).trim().replace(/\/+$/, "");
+  if (b.apiKey !== undefined && String(b.apiKey).trim()) patch.apiKey = String(b.apiKey).trim();   // blank = keep existing key
+  if (b.clearApiKey) patch.apiKey = "";
+  if (b.models !== undefined) patch.models = Array.isArray(b.models) ? b.models.map(String) : [];
+  if (b.agentModel !== undefined) patch.agentModel = String(b.agentModel).trim();
+  const p = serverSettings.updateProvider(req.params.id, patch);
+  res.json({ id: p.id, name: p.name, baseUrl: p.baseUrl, models: p.models, agentModel: p.agentModel, configured: !!p.apiKey, keyPreview: maskSecret(p.apiKey) });
+});
+app.delete("/api/admin/providers/:id", (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  if (req.params.id === "ollama") return res.status(400).json({ error: "The built-in Ollama connection can't be removed" });
+  serverSettings.deleteProvider(req.params.id);
+  res.json({ ok: true });
 });
 // list every on-disk index with stats
 app.get("/api/admin/indexes", (req, res) => {
@@ -1998,23 +2068,24 @@ app.post("/api/agent", async (req, res) => {
         c => { markFirst(); content += c; write({ message: { content: c } }); });
       const toolDefs = withTools ? agentToolDefs({ web: webEnabled, urls: pastedUrls.length > 0, user: req.user, files: filesEnabled, memory: memoryEnabled, connectors: connectorsEnabled, imageGen: imageGenEnabled }) : undefined;
 
-      if (modelProviderOf(chosen) === "nvidia") {
-        // NVIDIA's OpenAI-compatible API is server-managed context (no num_ctx to size) —
+      const _pid = modelProviderOf(chosen);
+      if (_pid !== "ollama") {
+        // an OpenAI-compatible provider is server-managed context (no num_ctx to size) —
         // reuses the same msgs/trimming above, just a different transport + response shape.
-        const r = await nvidiaLLM.streamChatTurn({
-          model: chosen.slice("nvidia/".length), messages: msgs, tools: toolDefs,
+        const r = await providerLLM.streamChatTurn(_pid, {
+          model: routedBareModel(chosen), messages: msgs, tools: toolDefs,
           temperature, maxTokens: npredict, topP,
           onContent: c => split.push(c),
           onThinking: t => { markFirst(); thinkAccum += t; write({ message: { thinking: t } }); },
         });
         split.flush();
         toolCalls = r.toolCalls; doneReason = r.doneReason;
-        console.log(`[TIMING] ${withTools ? "tools " : "answer"} (nvidia) stall-before-first-token=${_tFirst}ms`);
+        console.log(`[TIMING] ${withTools ? "tools " : "answer"} (${_pid}) stall-before-first-token=${_tFirst}ms`);
         return { content, toolCalls, thinking: thinkAccum, doneReason };
       }
 
-      const up = await fetch(`${OLLAMA_URL}/api/chat`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+        method: "POST", headers: ollamaConn.headers(),
         body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE,
           model: chosen, messages: msgs, stream: true, think: noThink ? false : !!thinking,
           ...(toolDefs ? { tools: toolDefs } : {}),
@@ -2268,7 +2339,7 @@ app.post("/api/chat", async (req, res) => {
     if (scope === "general") {
       chosenModel = model || OLLAMA_MODEL;
       sys = systemPrompt ||
-        "You are Cortex, a helpful, knowledgeable assistant. Answer clearly and concisely in Markdown.";
+        "You are Heap Chat, a helpful, knowledgeable assistant. Answer clearly and concisely in Markdown.";
     } else if (scope === "assistant") {
       // normal assistant + automatic KB grounding when the question is relevant
       chosenModel = model || OLLAMA_MODEL;
@@ -2295,7 +2366,7 @@ app.post("/api/chat", async (req, res) => {
         }
       }
       sys = (systemPrompt ||
-        "You are Cortex, a helpful assistant. Answer normally and conversationally in Markdown using your own knowledge. " +
+        "You are Heap Chat, a helpful assistant. Answer normally and conversationally in Markdown using your own knowledge. " +
         "If the CONTEXT below is relevant to the question, use it and cite the source filename in square brackets like [report.pdf]. " +
         "If the context isn't relevant, ignore it and just answer normally — do not mention it.") +
         (excerpts ? `\n\n--- CONTEXT FROM KNOWLEDGE BASE ---\n${excerpts}\n--- END CONTEXT ---\n` : "");
@@ -2315,7 +2386,7 @@ app.post("/api/chat", async (req, res) => {
         : "(No relevant excerpts found in the folder index.)";
       sys =
         (systemPrompt ||
-          "You are Cortex, answering questions about a folder of files using the excerpts below. " +
+          "You are Heap Chat, answering questions about a folder of files using the excerpts below. " +
           "Ground every claim in the excerpts; cite the source filename in square brackets like [report.pdf]. " +
           "If the excerpts don't contain the answer, say so plainly.") +
         `\n\nFOLDER: ${path.basename(path.resolve(folderPath))}` +
@@ -2330,7 +2401,7 @@ app.post("/api/chat", async (req, res) => {
       images = ctx.images;
       sys =
         (systemPrompt ||
-          "You are Cortex, a helpful assistant that answers questions about the user's selected file. " +
+          "You are Heap Chat, a helpful assistant that answers questions about the user's selected file. " +
           "Be concise, specific, and ground every answer in the file's actual content and metadata.") +
         "\n\n" + ctx.text;
     }
@@ -2360,16 +2431,17 @@ app.post("/api/chat", async (req, res) => {
 
     const chatMsgs = [{ role: "system", content: sys }, ...turns];
 
-    if (modelProviderOf(chosenModel) === "nvidia") {
+    const _chatPid = modelProviderOf(chosenModel);
+    if (_chatPid !== "ollama") {
       // No native tool-calling here (this route is the simple single-file/folder/assistant/general
-      // chat, not the agent) — just re-emit NVIDIA's stream as the same Ollama-shaped NDJSON lines
-      // this route already writes, so the existing frontend consumer needs no changes.
+      // chat, not the agent) — just re-emit the provider's stream as the same Ollama-shaped NDJSON
+      // lines this route already writes, so the existing frontend consumer needs no changes.
       res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
       res.setHeader("Cache-Control", "no-cache");
       if (sources.length) res.write(JSON.stringify({ sources }) + "\n");
       let usedTokens = 0;
-      await nvidiaLLM.streamChatTurn({
-        model: chosenModel.slice("nvidia/".length), messages: chatMsgs,
+      await providerLLM.streamChatTurn(_chatPid, {
+        model: routedBareModel(chosenModel), messages: chatMsgs,
         temperature, maxTokens, topP,
         onContent: c => res.write(JSON.stringify({ message: { content: c } }) + "\n"),
         onThinking: t => res.write(JSON.stringify({ message: { thinking: t } }) + "\n"),
@@ -2391,9 +2463,9 @@ app.post("/api/chat", async (req, res) => {
     payload.think = !!thinking;
 
     async function call(body) {
-      return fetch(`${OLLAMA_URL}/api/chat`, {
+      return fetch(`${ollamaConn.baseUrl()}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: ollamaConn.headers(),
         body: JSON.stringify(body),
       });
     }
@@ -2443,18 +2515,17 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-/* ---------------- list installed Ollama models (+ the admin's NVIDIA allowlist, if configured) ---------------- */
+/* ---------------- list installed Ollama models (+ any configured provider connections) ---------------- */
 app.get("/api/models", async (_req, res) => {
-  // NVIDIA models are addressed as "nvidia/<real-id>" everywhere in the app — see src/llm/router.js
-  const nv = serverSettings.getNvidiaConfig();
-  const nvidiaModels = nv.enabled ? nv.models.map(m => "nvidia/" + m) : [];
+  // provider models are addressed as "<providerId>/<real-id>" everywhere in the app — see src/llm/router.js
+  const providerModels = serverSettings.listProviders().filter(p => p.apiKey).flatMap(p => (p.models || []).map(m => p.id + "/" + m));
   try {
-    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const r = await fetch(`${ollamaConn.baseUrl()}/api/tags`, { headers: ollamaConn.headers(), signal: AbortSignal.timeout(5000) });
     const j = await r.json();
     const models = (j.models || []).map(m => m.name).sort((a, b) => a.localeCompare(b));
-    res.json({ models: [...models, ...nvidiaModels] });
+    res.json({ models: [...models, ...providerModels] });
   } catch {
-    res.json({ models: nvidiaModels });
+    res.json({ models: providerModels });
   }
 });
 
@@ -2467,11 +2538,11 @@ app.post("/api/vision", async (req, res) => {
     const b64s = srcImgs.map(s => String(s).replace(/^data:[^,]+,/, ""));
     const turns = messages.map(m => ({ role: m.role, content: m.content }));
     for (let i = turns.length - 1; i >= 0; i--) { if (turns[i].role === "user") { turns[i].images = b64s; break; } }
-    const sys = "You are Cortex. The user attached an image; answer their questions about it clearly in Markdown." +
+    const sys = "You are Heap Chat. The user attached an image; answer their questions about it clearly in Markdown." +
       sysInfoBlock() + profileBlock(req.user) +
       await memoryBlock(req.user, (([...turns].reverse().find(t => t.role === "user")) || {}).content || "");
     const payload = { keep_alive: OLLAMA_KEEP_ALIVE, model: model || OLLAMA_VISION_MODEL, messages: [{ role: "system", content: sys }, ...turns], stream: true, think: false, options: { temperature, num_predict: maxTokens, ...(contextWindow ? { num_ctx: contextWindow } : {}) } };
-    const up = await fetch(`${OLLAMA_URL}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, { method: "POST", headers: ollamaConn.headers(), body: JSON.stringify(payload) });
     if (!up.ok || !up.body) { const d = await up.text().catch(() => ""); return res.status(502).json({ error: `Ollama ${up.status}: ${d}` }); }
     res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache");
@@ -2484,7 +2555,7 @@ app.post("/api/vision", async (req, res) => {
 /* ---------------- ollama health ---------------- */
 app.get("/api/health", async (_req, res) => {
   try {
-    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(4000) });
+    const r = await fetch(`${ollamaConn.baseUrl()}/api/tags`, { headers: ollamaConn.headers(), signal: AbortSignal.timeout(4000) });
     res.json({ ok: r.ok });
   } catch {
     res.json({ ok: false });
@@ -2497,10 +2568,10 @@ app.get("/api/health", async (_req, res) => {
 app.get("/api/setup/status", async (_req, res) => {
   let ollama = false, models = [];
   try {
-    const r = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(4000) });
+    const r = await fetch(`${ollamaConn.baseUrl()}/api/tags`, { headers: ollamaConn.headers(), signal: AbortSignal.timeout(4000) });
     if (r.ok) { ollama = true; const j = await r.json(); models = (j.models || []).map(m => m.name).sort((a, b) => a.localeCompare(b)); }
   } catch {}
-  res.json({ ollama, endpoint: OLLAMA_URL, models, ramGB: Math.round(os.totalmem() / 1073741824) });
+  res.json({ ollama, endpoint: ollamaConn.baseUrl(), models, ramGB: Math.round(os.totalmem() / 1073741824) });
 });
 
 // stream a model download from Ollama to the client (NDJSON progress: status + total/completed bytes)
@@ -2509,8 +2580,8 @@ app.post("/api/ollama/pull", async (req, res) => {
   if (!model) return res.status(400).json({ error: "model required" });
   try {
     // send both keys — older Ollama expects `name`, newer accepts `model`
-    const up = await fetch(`${OLLAMA_URL}/api/pull`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+    const up = await fetch(`${ollamaConn.baseUrl()}/api/pull`, {
+      method: "POST", headers: ollamaConn.headers(),
       body: JSON.stringify({ name: model, model, stream: true }),
     });
     if (!up.ok || !up.body) { const d = await up.text().catch(() => ""); return res.status(502).json({ error: `Ollama ${up.status}: ${d}` }); }
@@ -2565,12 +2636,12 @@ let httpServer = null;
 function bindServer() {
   const host = serverSettings.get().lanAccess ? "0.0.0.0" : "127.0.0.1";
   httpServer = app.listen(PORT, host, () => {
-    console.log(`\n  Cortex running →  http://localhost:${PORT}`);
+    console.log(`\n  Heap Chat running →  http://localhost:${PORT}`);
     if (serverSettings.get().lanAccess) lanUrls().forEach(u => console.log(`  On your network →  ${u}`));
-    console.log(`  Ollama:  ${OLLAMA_URL}`);
+    console.log(`  Ollama:  ${ollamaConn.baseUrl()}`);
     console.log(`  Model:   ${OLLAMA_MODEL}\n`);
-    const nv = serverSettings.getNvidiaConfig();
-    if (nv.enabled) console.log(`  NVIDIA:  enabled (${nv.models.join(", ")})\n`);
+    const active = serverSettings.listProviders().filter(p => p.apiKey);
+    if (active.length) console.log(`  Providers:  ${active.map(p => `${p.name} (${p.models.length})`).join(", ")}\n`);
   });
 }
 bindServer();

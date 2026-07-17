@@ -12,7 +12,7 @@ const MCP_EXPOSED = ["search_docs", "find_text", "list_files", "read_file", "que
 async function makeMcpServer(user) {
   const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
   const { ListToolsRequestSchema, CallToolRequestSchema } = await import("@modelcontextprotocol/sdk/types.js");
-  const srv = new Server({ name: "cortex", version: "1.0.0" }, { capabilities: { tools: {} } });
+  const srv = new Server({ name: "heapchat", version: "1.0.0" }, { capabilities: { tools: {} } });
   srv.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: MCP_EXPOSED.map(n => {
       const f = TOOL_REGISTRY[n].def.function;

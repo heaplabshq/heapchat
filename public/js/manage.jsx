@@ -64,7 +64,7 @@ function ManagePage({ onOpenFolder }) {
     const r = await fetch("/api/profile/rebuild", { method: "POST" }).then(r => r.json()).catch(() => null);
     if (r && r.profile) { setProfile(r.profile); }
     else if (r && r.empty) setProfileMsg(r.reason === "no-memories"
-      ? "Nothing to build from yet — add a preference or fact below (or tell Cortex “remember that…” in a chat), then rebuild."
+      ? "Nothing to build from yet — add a preference or fact below (or tell Heap Chat “remember that…” in a chat), then rebuild."
       : "Couldn’t synthesize a profile right now — make sure the local model is running, then try again.");
     setProfileBusy(false);
   }
@@ -112,18 +112,18 @@ function ManagePage({ onOpenFolder }) {
       <div className="settings-wrap" style={{ maxWidth: 880 }}>
         <div className="row between" style={{ marginBottom: 22 }}>
           <div className="col" style={{ gap: 4 }}>
-            <span className="serif" style={{ fontSize: 26 }}>What Cortex knows</span>
+            <span className="serif" style={{ fontSize: 26 }}>What Heap Chat knows</span>
             <span className="ink-3 t-md">Memory, skills, and the indexes that power search.</span>
           </div>
           <button className="btn" onClick={load}><Icon name="refresh" size={15} /> Refresh</button>
         </div>
 
-        {/* PROFILE — the synthesized "what Cortex knows about you" */}
+        {/* PROFILE — the synthesized "what Heap Chat knows about you" */}
         <div className="set-section">
           <div className="row between" style={{ alignItems: "flex-start", gap: 12 }}>
             <div className="col" style={{ gap: 4, minWidth: 0 }}>
-              <div className="set-title"><Icon name="compass" size={18} style={{ color: "var(--accent)" }} /> What Cortex knows about you</div>
-              <div className="set-sub" style={{ marginBottom: 0 }}>A short, evolving picture of you — synthesized from your preferences, instructions and past tasks — that rides along in every chat. It refreshes on its own as you teach Cortex more; edit it if anything’s off.</div>
+              <div className="set-title"><Icon name="compass" size={18} style={{ color: "var(--accent)" }} /> What Heap Chat knows about you</div>
+              <div className="set-sub" style={{ marginBottom: 0 }}>A short, evolving picture of you — synthesized from your preferences, instructions and past tasks — that rides along in every chat. It refreshes on its own as you teach Heap Chat more; edit it if anything’s off.</div>
             </div>
             <div className="row gap-2 none" style={{ flexShrink: 0 }}>
               <button className="btn sm" disabled={profileBusy} onClick={rebuildProfile} title="Re-synthesize from your memories">
@@ -153,7 +153,7 @@ function ManagePage({ onOpenFolder }) {
               </div>
             ) : (
               <div className={"t-sm " + (profileMsg ? "" : "ink-3")} style={profileMsg ? { color: "var(--accent)" } : undefined}>
-                {profileMsg || "No profile yet — once you’ve taught Cortex a few preferences or facts, it’ll synthesize one (or hit Rebuild)."}
+                {profileMsg || "No profile yet — once you’ve taught Heap Chat a few preferences or facts, it’ll synthesize one (or hit Rebuild)."}
               </div>
             )}
           </div>
@@ -227,7 +227,7 @@ function ManagePage({ onOpenFolder }) {
           <label className="row between" style={{ gap: 12, margin: "10px 0 2px", padding: "10px 14px", border: "1px solid var(--line)", borderRadius: "var(--radius)", background: "var(--surface)", cursor: "pointer" }}>
             <div className="col" style={{ gap: 2, minWidth: 0 }}>
               <span className="semi t-sm">Reflection <span className="img-badge none">experimental</span></span>
-              <span className="t-xs ink-3">After a chat ends, let Cortex review it and quietly correct any saved memory or skill the conversation proved wrong. Off by default; revised items are tagged so you can undo them.</span>
+              <span className="t-xs ink-3">After a chat ends, let Heap Chat review it and quietly correct any saved memory or skill the conversation proved wrong. Off by default; revised items are tagged so you can undo them.</span>
             </div>
             <input type="checkbox" checked={reflection} onChange={toggleReflection} style={{ flexShrink: 0, width: 16, height: 16 }} />
           </label>

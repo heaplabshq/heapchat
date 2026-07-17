@@ -29,7 +29,7 @@ function storesFor(user) {
     chats: load("chats.json", {}),
     memory: load("memory.json", []),
     skills: load("skills.json", []),          // reusable how-to procedures (learning loop)
-    profile: load("profile.json", null),      // synthesized "what Cortex knows about you"
+    profile: load("profile.json", null),      // synthesized "what Heap Chat knows about you"
     jobs: load("jobs.json", []),              // scheduled agent runs
     digests: load("digests.json", []),        // activity feed: outputs of scheduled runs
     settings: load("settings.json", {}),      // per-user feature flags (e.g. { reflection: true })

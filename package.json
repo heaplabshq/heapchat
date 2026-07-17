@@ -1,7 +1,7 @@
 {
-  "name": "cortex",
+  "name": "heapchat",
   "version": "1.0.0",
-  "description": "Cortex — browse a folder like a board and chat with a local Ollama model about any file.",
+  "description": "Heap Chat — browse a folder like a board and chat with a local Ollama model about any file.",
   "author": "sid7631",
   "license": "SEE LICENSE IN LICENSE",
   "main": "electron/main.js",
@@ -23,14 +23,14 @@
     "dist:win": "npm run build:ui && electron-builder --win"
   },
   "build": {
-    "appId": "com.cortex.app",
-    "productName": "Cortex",
+    "appId": "com.heapchat.app",
+    "productName": "Heap Chat",
     "icon": "build/icon.png",
     "publish": [
       {
         "provider": "github",
         "owner": "sid7631",
-        "repo": "cortex"
+        "repo": "heapchat"
       }
     ],
     "directories": {
@@ -49,6 +49,10 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "CFBundleDocumentTypes": [
           {
@@ -80,7 +84,7 @@
       ]
     },
     "dmg": {
-      "title": "Cortex ${version} ${arch}"
+      "title": "Heap Chat ${version} ${arch}"
     },
     "win": {
       "icon": "build/icon.png",

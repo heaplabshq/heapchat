@@ -2,7 +2,7 @@
    today; anything else that speaks the same chat-completions format — OpenAI itself, Together,
    Groq, Fireworks, DeepSeek, etc. — later), via the official `openai` SDK. Every function takes
    `{ apiKey, baseUrl }` explicitly rather than looking up a specific provider's config, so this
-   module has no idea NVIDIA exists; see src/llm/nvidia.js for that adapter.
+   module has no idea which providers exist; see src/llm/providers.js for that adapter.
 
    NOTE: this is NOT a fit for Anthropic/Claude — the Messages API isn't wire-compatible with
    OpenAI's chat-completions format (different content-block/tool_use/streaming-event shapes), so

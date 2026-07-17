@@ -35,7 +35,7 @@ function GalleryBody({
             <div className="dz-mark"><Icon name="upload" size={30} sw={1.6} /></div>
             <div className="x-bold tighter" style={{ fontSize: 22, marginBottom: 8 }}>Build your knowledge base</div>
             <div className="ink-3 t-md" style={{ marginBottom: 22, maxWidth: 380, marginInline: "auto" }}>
-              Drop files here or click to upload. Cortex indexes them so you can ask questions across everything — PDFs, Word docs, Markdown, CSV, code & text.
+              Drop files here or click to upload. Heap Chat indexes them so you can ask questions across everything — PDFs, Word docs, Markdown, CSV, code & text.
             </div>
             <button className="btn primary" disabled={uploading}><Icon name="upload" size={16} /> {uploading ? "Uploading…" : "Upload files"}</button>
           </div>

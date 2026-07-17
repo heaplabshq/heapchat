@@ -4,10 +4,10 @@ require("dotenv").config();
 const path = require("path");
 
 // repo root (this file lives in <root>/src). User data lives next to the source by
-// default, but the desktop wrapper points CORTEX_DATA_DIR at a writable per-user
+// default, but the desktop wrapper points HEAPCHAT_DATA_DIR at a writable per-user
 // location (the packaged app folder is read-only).
 const ROOT = path.join(__dirname, "..");
-const DATA_DIR = process.env.CORTEX_DATA_DIR ? path.resolve(process.env.CORTEX_DATA_DIR) : path.join(ROOT, "data");
+const DATA_DIR = process.env.HEAPCHAT_DATA_DIR ? path.resolve(process.env.HEAPCHAT_DATA_DIR) : path.join(ROOT, "data");
 
 const PORT = process.env.PORT || 5174;
 const HOST = process.env.HOST || "127.0.0.1";   // initial default only — admins toggle network access live in Settings (data/server.json wins)

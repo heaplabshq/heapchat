@@ -24,7 +24,7 @@ import { CommandPalette } from "./commandpalette.jsx";
 import { AgentEditModal, AgentsHub } from "./agents.jsx";
 import { QuickAsk } from "./quickask.jsx";
 import { AuthScreen } from "./auth.jsx";
-// app.jsx — Cortex shell: folder picker → real gallery → focus + chat, plus settings
+// app.jsx — Heap Chat shell: folder picker → real gallery → focus + chat, plus settings
 const { useState, useEffect, useRef } = React;
 
 // ExtractModal / DuplicatesModal / RenameModal (+ prettyBytes) live in modals.jsx (loaded first).
@@ -37,9 +37,9 @@ const MIN_CHAT_W = 470, MAX_CHAT_W = 760;
 const AUTO_INDEX_LIMIT = 200;   // auto-index folders with up to this many text files; bigger → opt-in
 const INDEX_EXT = new Set(["txt", "md", "markdown", "csv", "json", "xml", "yml", "yaml", "html", "htm", "css",
   "js", "jsx", "ts", "tsx", "py", "go", "rs", "java", "rb", "php", "sh", "c", "cpp", "h", "log", "rtf", "svg", "pdf", "docx"]);
-const RECENTS_KEY = "cortex.recents";   // suffixed with the user id at runtime
-const LASTFOLDER_KEY = "cortex.lastfolder";   // last browsed folder, so we can return to it after a restart
-const SETTINGS_KEY = "cortex.settings";
+const RECENTS_KEY = "heapchat.recents";   // suffixed with the user id at runtime
+const LASTFOLDER_KEY = "heapchat.lastfolder";   // last browsed folder, so we can return to it after a restart
+const SETTINGS_KEY = "heapchat.settings";
 
 function App({ user }) {
   const recentsKey = RECENTS_KEY + "." + user.id;
@@ -47,7 +47,7 @@ function App({ user }) {
   const settingsKey = SETTINGS_KEY + "." + user.id;
   if (!localStorage.getItem(settingsKey) && localStorage.getItem(SETTINGS_KEY))
     localStorage.setItem(settingsKey, localStorage.getItem(SETTINGS_KEY));   // adopt legacy single-tenant settings once
-  ["cortex.last", "cortex.recents", "cortex.settings", "cortex.side", "cortex.chatw"].forEach(k => localStorage.removeItem(k));
+  ["heapchat.last", "heapchat.recents", "heapchat.settings", "heapchat.side", "heapchat.chatw"].forEach(k => localStorage.removeItem(k));
   const [config, setConfig] = useState(null);
   const [online, setOnline] = useState(false);
   const [models, setModels] = useState([]);
@@ -105,8 +105,8 @@ function App({ user }) {
   const [peopleFolder, setPeopleFolder] = useState(null);      // folder to scan in People (null = global People view)
   const [peopleOrigin, setPeopleOrigin] = useState("gallery"); // where the folder-scoped People view was opened from
   const [pickerMode, setPickerMode] = useState("folder");      // "folder" → loadFolder; "people" → scope the People view
-  const [sideCollapsed, setSideCollapsed] = usePersistentState("cortex.side." + user.id, s => s === "1", v => v ? "1" : "0");
-  const [chatWidth, setChatWidth] = usePersistentState("cortex.chatw." + user.id, s => Math.min(MAX_CHAT_W, Math.max(MIN_CHAT_W, +s || MIN_CHAT_W)), v => String(v));
+  const [sideCollapsed, setSideCollapsed] = usePersistentState("heapchat.side." + user.id, s => s === "1", v => v ? "1" : "0");
+  const [chatWidth, setChatWidth] = usePersistentState("heapchat.chatw." + user.id, s => Math.min(MAX_CHAT_W, Math.max(MIN_CHAT_W, +s || MIN_CHAT_W)), v => String(v));
   function toggleSide() { setSideCollapsed(v => !v); }
   function setChatW(w) { setChatWidth(Math.max(MIN_CHAT_W, Math.min(MAX_CHAT_W, w))); }
   const [query, setQuery] = useState("");
@@ -393,8 +393,8 @@ function App({ user }) {
     else if (name === "open-settings") { setView("settings"); setFocusFile(null); }
   };
   useEffect(() => {
-    if (!(window.cortex && window.cortex.onAction)) return;
-    return window.cortex.onAction(name => actionRef.current(name));
+    if (!(window.heapchat && window.heapchat.onAction)) return;
+    return window.heapchat.onAction(name => actionRef.current(name));
   }, []);
 
   // desktop: screenshot capture + Finder/Dock drops → ingest into the knowledge base (with OCR/index)
@@ -416,30 +416,35 @@ function App({ user }) {
     } catch { flashToast("Couldn't add to the knowledge base"); }
   };
   useEffect(() => {
-    if (!(window.cortex && window.cortex.onIngestFiles)) return;
-    const offFiles = window.cortex.onIngestFiles(d => ingestRef.current(d));
-    const offFolder = window.cortex.onOpenFolder ? window.cortex.onOpenFolder(d => d && d.path && loadFolder(d.path)) : null;
+    if (!(window.heapchat && window.heapchat.onIngestFiles)) return;
+    const offFiles = window.heapchat.onIngestFiles(d => ingestRef.current(d));
+    const offFolder = window.heapchat.onOpenFolder ? window.heapchat.onOpenFolder(d => d && d.path && loadFolder(d.path)) : null;
     return () => { offFiles && offFiles(); offFolder && offFolder(); };
   }, []);
 
-  // "Continue in Cortex" from the Quick Ask panel → seed a real agent chat with that exchange and open it
+  // "Continue in Heap Chat" from the Quick Ask panel → open the exchange's session (Quick Ask
+  // already saves every answered question as it completes — see quickask.jsx — so normally this
+  // just switches to it; the question/answer fallback only matters if a session couldn't be saved).
   const continueRef = useRef(null);
-  continueRef.current = async ({ question, answer } = {}) => {
-    if (!question) return;
-    const sid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "s" + Date.now() + Math.random().toString(16).slice(2);
-    const messages = [{ role: "user", text: question }];
-    if (answer) messages.push({ role: "ai", text: answer });
-    const source = { scope: "agent", domain: "kb", name: "Cortex Agent", id: "agent" };
-    try { await ChatAPI.save("agent", sid, question.slice(0, 60), messages, source, false, null, null); } catch {}
+  continueRef.current = async ({ question, answer, sessionId } = {}) => {
+    let sid = sessionId;
+    if (!sid) {
+      if (!question) return;
+      sid = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "s" + Date.now() + Math.random().toString(16).slice(2);
+      const messages = [{ role: "user", text: question }];
+      if (answer) messages.push({ role: "ai", text: answer });
+      const source = { scope: "agent", domain: "kb", name: "Heap Chat Agent", id: "agent" };
+      try { await ChatAPI.save("agent", sid, question.slice(0, 60), messages, source, false, null, null); } catch {}
+    }
     loadRecentChats();   // the seeded chat must appear in the sidebar immediately
     setActiveAgentId(null); setFocusFile(null);
     if (view === "chat" && activeAgentId === null && chatControls && chatControls.switchSession) chatControls.switchSession(sid);   // already on the default chat → switch in place
     else { setPendingSession(sid); setView("chat"); setTimeout(() => setPendingSession(null), 1500); }
   };
   useEffect(() => {
-    if (!(window.cortex && window.cortex.onContinueChat)) return;
-    const off = window.cortex.onContinueChat(d => continueRef.current(d));
-    if (window.cortex.rendererReady) window.cortex.rendererReady();   // signal main we're subscribed; flush any buffered continue
+    if (!(window.heapchat && window.heapchat.onContinueChat)) return;
+    const off = window.heapchat.onContinueChat(d => continueRef.current(d));
+    if (window.heapchat.rendererReady) window.heapchat.rendererReady();   // signal main we're subscribed; flush any buffered continue
     return off;
   }, []);
 
@@ -452,12 +457,12 @@ function App({ user }) {
       let pending = [];
       try { pending = (await fetch("/api/notifications").then(r => r.json())).notifications || []; } catch { return; }
       if (!pending.length) return;
-      if (!window.cortex && "Notification" in window && Notification.permission === "default") {
+      if (!window.heapchat && "Notification" in window && Notification.permission === "default") {
         try { await Notification.requestPermission(); } catch {}
       }
       for (const n of pending) {
-        if (window.cortex && window.cortex.notify) window.cortex.notify(n.title || "Cortex", n.body || "");
-        else if ("Notification" in window && Notification.permission === "granted") { try { new Notification(n.title || "Cortex", { body: n.body || "" }); } catch {} }
+        if (window.heapchat && window.heapchat.notify) window.heapchat.notify(n.title || "Heap Chat", n.body || "");
+        else if ("Notification" in window && Notification.permission === "granted") { try { new Notification(n.title || "Heap Chat", { body: n.body || "" }); } catch {} }
       }
     }
     pump();
@@ -570,7 +575,7 @@ function App({ user }) {
   }, [pendingAsk, view, chatControls]);
   // pick a folder to scan within People (native dialog on desktop, in-app picker in a browser)
   function pickFolderForPeople() {
-    if (window.cortex && window.cortex.pickFolder) { window.cortex.pickFolder(pickerStart()).then(p => { if (p) { setPeopleOrigin("global"); setPeopleFolder({ path: p, name: p.split(/[\\/]/).filter(Boolean).pop() || p }); } }); return; }
+    if (window.heapchat && window.heapchat.pickFolder) { window.heapchat.pickFolder(pickerStart()).then(p => { if (p) { setPeopleOrigin("global"); setPeopleFolder({ path: p, name: p.split(/[\\/]/).filter(Boolean).pop() || p }); } }); return; }
     setPickerMode("people"); setPickerOpen(true);
   }
   function onPickFile(file) { setPickerOpen(false); openFile(file); }
@@ -579,13 +584,13 @@ function App({ user }) {
   function pickerStart() { return (folder && !folder.single ? folder.path : null) || (config && config.home) || undefined; }
   // open a folder — native OS dialog in the desktop app, the in-app browser in a plain browser
   function browseFolder() {
-    if (window.cortex && window.cortex.pickFolder) { window.cortex.pickFolder(pickerStart()).then(p => { if (p) loadFolder(p); }); return; }
+    if (window.heapchat && window.heapchat.pickFolder) { window.heapchat.pickFolder(pickerStart()).then(p => { if (p) loadFolder(p); }); return; }
     setPickerOpen(true);
   }
   // open a folder OR a file — native dialog (desktop) routes by type; browser uses the in-app picker
   function browsePath() {
-    if (window.cortex && window.cortex.pickPath) {
-      window.cortex.pickPath(pickerStart()).then(r => { if (r && r.path) (r.isDirectory ? loadFolder(r.path) : openRecentFile(r.path)); });
+    if (window.heapchat && window.heapchat.pickPath) {
+      window.heapchat.pickPath(pickerStart()).then(r => { if (r && r.path) (r.isDirectory ? loadFolder(r.path) : openRecentFile(r.path)); });
       return;
     }
     setPickerOpen(true);
@@ -712,7 +717,7 @@ function App({ user }) {
         {view === "settings" ? (
           <SettingsPage settings={draft} set={setDraftPartial} onSave={saveSettings} onReset={resetSettings} online={online} models={models}
             account={config ? { user: config.user, role: config.role, userId: config.userId } : null}
-            nvidiaEnabled={config ? !!config.nvidiaEnabled : false} />
+            providers={config ? (config.providers || []) : []} />
         ) : view === "manage" ? (
           <ManagePage onOpenFolder={f => loadFolder(f)} />
         ) : view === "projects" ? (
@@ -776,7 +781,7 @@ function App({ user }) {
             )}
             <div className="content">
               <ChatPanel variant="main" key={"mainchat-" + (activeAgentId || "default")}
-                target={{ scope: "agent", domain: "kb", id: "agent", name: "Cortex Agent" }}
+                target={{ scope: "agent", domain: "kb", id: "agent", name: "Heap Chat Agent" }}
                 settings={saved} online={online} models={models} initialSessionId={pendingSession}
                 agents={agents} initialAgentId={activeAgentId} onNewAgent={() => setAgentEditModal({})}
                 onOpenPath={openSourcePreview} onControls={setChatControls} />
@@ -788,7 +793,7 @@ function App({ user }) {
               <div className="dz-mark"><Icon name="folderOpen" size={30} sw={1.6} /></div>
               <div className="x-bold tighter" style={{ fontSize: 22, marginBottom: 8 }}>Open a folder to begin</div>
               <div className="ink-3 t-md" style={{ marginBottom: 22, maxWidth: 360, marginInline: "auto" }}>
-                Cortex indexes every file so you can browse them like a board — and ask a local AI questions about any one of them.
+                Heap Chat indexes every file so you can browse them like a board — and ask a local AI questions about any one of them.
               </div>
               {loadError && <div className="callout warn" style={{ marginBottom: 18, textAlign: "left" }}><Icon name="alert" size={16} /><span>{loadError}</span></div>}
               <div className="row center gap-3">
@@ -905,7 +910,7 @@ function Root() {
   // the desktop Quick Ask panel loads the app with ?quick=1 — render the compact panel instead of the full shell
   const isQuick = new URLSearchParams(location.search).get("quick") === "1";
   if (isQuick) {
-    if (auth.state !== "ready") return <div className="quick-wrap"><div className="quick-empty" style={{ padding: 40 }}><Icon name="layers" size={22} /><span>Open Cortex and sign in first.</span></div></div>;
+    if (auth.state !== "ready") return <div className="quick-wrap"><div className="quick-empty" style={{ padding: 40, height: "auto" }}><Icon name="layers" size={22} /><span>Open Heap Chat and sign in first.</span></div></div>;
     return <QuickAsk />;
   }
   if (auth.state !== "ready") return <AuthScreen mode={auth.state} onAuth={() => { location.href = "/"; }} />;

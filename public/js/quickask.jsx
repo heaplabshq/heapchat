@@ -1,8 +1,14 @@
 import { Icon } from "./icons.jsx";
 import { fmt } from "./markdown.jsx";
-// quickask.jsx — the compact Spotlight-style panel (loaded in the ?quick window).
-// A single-turn ask against the agent over the knowledge base; ephemeral, not saved.
+import { ChatAPI, newId } from "./chat-data.jsx";
+import { applyAccent } from "./sidebar.jsx";
+// quickask.jsx — the compact, Claude-style floating quick-entry panel (loaded in the ?quick window).
+// A single-turn ask against the agent over the knowledge base. Each answered question is saved as
+// its own session under the same "agent" bucket as the main default chat (see app.jsx), so it shows
+// up in Recent Chats immediately — "Continue in Heap Chat" just switches to that already-saved
+// session rather than creating a new one.
 const { useState: useQA, useRef: useQR, useEffect: useQE } = React;
+const QUICK_SOURCE = { scope: "agent", domain: "kb", name: "Heap Chat Agent", id: "agent" };
 
 function QuickAsk() {
   const [q, setQ] = useQA("");
@@ -11,24 +17,84 @@ function QuickAsk() {
   const [answer, setAnswer] = useQA("");
   const [status, setStatus] = useQA("");      // transient "Searching…" while tools run
   const [error, setError] = useQA(null);
+  const [menuOpen, setMenuOpen] = useQA(false);
+  const [shareDismissed, setShareDismissed] = useQA(() => localStorage.getItem("heapchat.quickShareDismissed") === "1");
+  const [screenOn, setScreenOn] = useQA(() => localStorage.getItem("heapchat.quickScreenShare") === "1");
+  const [filesOn, setFilesOn] = useQA(() => localStorage.getItem("heapchat.quickFileShare") === "1");
   const taRef = useQR(null);
   const abortRef = useQR(null);
   const bodyRef = useQR(null);
+  const wrapRef = useQR(null);
+  const menuRef = useQR(null);
+  const sidRef = useQR(null);   // the saved-session id for the current question, once it has one
+
+  // Quick Ask is a separate window/document from the main app shell, so the accent color the
+  // user picked in Settings (applied there by sidebar.jsx, which never mounts here) has to be
+  // re-applied independently from the same saved preference. And since the Electron window is
+  // created once and then just shown/hidden (never reloaded — see toggleQuickAsk in main.js),
+  // this can't be a mount-only effect either, or a color changed after the window was first
+  // created would never be picked up: re-apply on every focus (covers "changed it while Quick
+  // Ask was hidden, then reopened") and on the storage event (covers "changed it in the main
+  // window while Quick Ask is open side by side" — storage only fires in *other* documents).
+  useQE(() => {
+    const apply = () => applyAccent(localStorage.getItem("heapchat.accent") || "#4F46E5");
+    apply();
+    const onStorage = e => { if (!e.key || e.key === "heapchat.accent") apply(); };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", apply);
+    return () => { window.removeEventListener("storage", onStorage); window.removeEventListener("focus", apply); };
+  }, []);
 
   useQE(() => { if (taRef.current) taRef.current.focus(); }, []);
   useQE(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [answer, status]);
 
-  function hide() { if (window.cortex && window.cortex.quickHide) window.cortex.quickHide(); }
-  function openMain() { if (window.cortex && window.cortex.openMain) window.cortex.openMain(); }
-  // carry this exchange into a real chat in the main app so the user can keep going with context
+  // the window itself starts small and grows to fit content (like a native popover)
+  useQE(() => {
+    if (!wrapRef.current || !(window.heapchat && window.heapchat.quickResize)) return;
+    const el = wrapRef.current;
+    const ro = new ResizeObserver(() => window.heapchat.quickResize(el.scrollHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useQE(() => {
+    if (!menuOpen) return;
+    const onDown = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menuOpen]);
+
+  function hide() { if (window.heapchat && window.heapchat.quickHide) window.heapchat.quickHide(); }
+  function openMain() { setMenuOpen(false); if (window.heapchat && window.heapchat.openMain) window.heapchat.openMain(); }
+  // switch straight to the already-saved session in the main window (see ask() below — every
+  // answered question is saved as it completes, so there's nothing left to create here)
   function continueInApp() {
-    if (window.cortex && window.cortex.openMain) window.cortex.openMain({ question: asked, answer });
+    if (window.heapchat && window.heapchat.openMain) window.heapchat.openMain({ sessionId: sidRef.current, question: asked, answer });
+  }
+  function resetAsk() {
+    if (abortRef.current) abortRef.current.abort();
+    setQ(""); setAsked(""); setAnswer(""); setError(null); setStatus(""); setBusy(false);
+    setMenuOpen(false);
+    sidRef.current = null;
+    if (taRef.current) taRef.current.focus();
+  }
+
+  function dismissShare() { localStorage.setItem("heapchat.quickShareDismissed", "1"); setShareDismissed(true); }
+  async function turnOnScreenshots() {
+    if (!(window.heapchat && window.heapchat.requestScreenPermission)) return;
+    const ok = await window.heapchat.requestScreenPermission();
+    if (ok) { localStorage.setItem("heapchat.quickScreenShare", "1"); setScreenOn(true); }
+  }
+  function turnOnFileSharing() {
+    localStorage.setItem("heapchat.quickFileShare", "1");
+    setFilesOn(true);
   }
 
   async function ask() {
     const text = q.trim();
     if (!text || busy) return;
     setAsked(text);
+    sidRef.current = newId();   // this question gets its own session, saved once it has an answer
     setBusy(true); setAnswer(""); setError(null); setStatus("Thinking…");
     const ctrl = new AbortController(); abortRef.current = ctrl;
     try {
@@ -53,7 +119,11 @@ function QuickAsk() {
           if (c) { got += c; setStatus(""); setAnswer(got); }
         }
       }
-      if (!got.trim()) setAnswer("_(no answer)_");
+      if (!got.trim()) { setAnswer("_(no answer)_"); }
+      else {
+        const messages = [{ role: "user", text }, { role: "ai", text: got }];
+        ChatAPI.save("agent", sidRef.current, text.slice(0, 60), messages, QUICK_SOURCE, false, null, null).catch(() => {});
+      }
     } catch (e) {
       if (e.name !== "AbortError") setError(e.message);
     } finally { setBusy(false); setStatus(""); abortRef.current = null; }
@@ -64,42 +134,59 @@ function QuickAsk() {
     else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); }
   }
 
+  const showShare = !shareDismissed && !(screenOn && filesOn);
+  const showBody = !!(asked || busy || error);
+
   return (
-    <div className="quick-wrap" onKeyDown={onKey}>
-      <div className="quick-head">
-        <div className="brand-mark sm"><Icon name="sparkles" size={15} sw={2} /></div>
-        <span className="quick-title">Quick Ask</span>
-        <span className="quick-hint">your knowledge base</span>
-        <button className="btn icon sm ghost quick-nodrag" title="Open in Cortex" onClick={openMain}><Icon name="layers" size={14} /></button>
-        <button className="btn icon sm ghost quick-nodrag" title="Close (Esc)" onClick={hide}><Icon name="x" size={14} /></button>
-      </div>
-
-      <div className="quick-input quick-nodrag">
-        <Icon name="search" size={16} style={{ color: "var(--ink-3)", flex: "none" }} />
-        <textarea ref={taRef} rows={1} placeholder="Ask anything about your files…" value={q}
-          onChange={e => setQ(e.target.value)} disabled={busy} />
+    <div className="quick-wrap" ref={wrapRef} onKeyDown={onKey}>
+      <div className="quick-bar quick-head">
+        <div className="quick-badge"><Icon name="sparkles" size={16} sw={2} /></div>
+        <textarea ref={taRef} rows={1} className="quick-nodrag" placeholder="What can I help you with today?"
+          value={q} onChange={e => setQ(e.target.value)} disabled={busy} />
+        <div className="dropdown quick-nodrag" ref={menuRef}>
+          <button className="quick-newchat" onClick={() => setMenuOpen(v => !v)}>
+            New Chat <Icon name="chevD" size={13} />
+          </button>
+          {menuOpen && (
+            <div className="dd-menu quick-dd">
+              <button className="dd-item" onClick={resetAsk}><Icon name="plus" size={14} /> New Chat</button>
+              <button className="dd-item" onClick={openMain}><Icon name="layers" size={14} /> Open in Heap Chat</button>
+            </div>
+          )}
+        </div>
         {busy
-          ? <button className="btn icon sm" title="Stop" onClick={() => abortRef.current && abortRef.current.abort()}><Icon name="x" size={14} /></button>
-          : <button className="btn icon sm primary" title="Ask (Enter)" disabled={!q.trim()} onClick={ask}><Icon name="send" size={14} /></button>}
+          ? <button className="quick-submit quick-nodrag" title="Stop" onClick={() => abortRef.current && abortRef.current.abort()}><Icon name="x" size={15} /></button>
+          : <button className="quick-submit quick-nodrag" title="Ask (Enter)" disabled={!q.trim()} onClick={ask}><Icon name="send" size={15} /></button>}
       </div>
 
-      <div className="quick-body quick-nodrag" ref={bodyRef}>
-        {error ? (
-          <div className="callout warn"><Icon name="alert" size={14} /><span>{error}</span></div>
-        ) : status ? (
-          <div className="row gap-2 ink-3" style={{ padding: "6px 2px" }}><span className="spin-mini" /><span className="t-sm">{status}</span></div>
-        ) : answer ? (
-          <>
-            {fmt(answer)}
-            <button className="quick-continue quick-nodrag" onClick={continueInApp}><Icon name="chevR" size={13} /> Continue in Cortex</button>
-          </>
-        ) : (
-          <div className="quick-empty">
-            <Icon name="sparkles" size={22} style={{ color: "var(--accent)", opacity: .5 }} />
-            <span>Ask a question and I'll search your knowledge base. Press <kbd>Esc</kbd> to dismiss.</span>
+      {showShare && (
+        <div className="quick-share quick-nodrag">
+          <div className="quick-share-text">
+            <span className="quick-share-title">Quickly share content with Heap Chat</span>
+            <span className="quick-share-sub">Needs additional permission</span>
           </div>
-        )}
-      </div>
+          <div className="quick-share-actions">
+            {!screenOn && <button className="quick-pill" onClick={turnOnScreenshots}>Turn on screenshots</button>}
+            {!filesOn && <button className="quick-pill" onClick={turnOnFileSharing}>Turn on file sharing</button>}
+            <button className="quick-pill" onClick={dismissShare}>Not now</button>
+          </div>
+        </div>
+      )}
+
+      {showBody && (
+        <div className="quick-body quick-nodrag" ref={bodyRef}>
+          {error ? (
+            <div className="callout warn"><Icon name="alert" size={14} /><span>{error}</span></div>
+          ) : status ? (
+            <div className="row gap-2 ink-3" style={{ padding: "6px 2px" }}><span className="spin-mini" /><span className="t-sm">{status}</span></div>
+          ) : answer ? (
+            <>
+              {fmt(answer)}
+              <button className="quick-continue quick-nodrag" onClick={continueInApp}><Icon name="chevR" size={13} /> Continue in Heap Chat</button>
+            </>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

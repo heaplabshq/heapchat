@@ -13,10 +13,14 @@ import { AgentPicker } from "./agents.jsx";
    are threaded down as props. A later step could move that state into Composer
    and expose a single onSend callback. */
 
-// "nvidia/z-ai/glm-5.2" -> "z-ai/glm-5.2 · NVIDIA" — the "nvidia/" prefix is an internal
-// routing marker (see src/llm/router.js), not part of the real model id, so hide it from users.
+// "groq/llama-3.3-70b" -> "llama-3.3-70b" — a leading "<providerId>/" is an internal routing
+// marker (see src/llm/router.js) naming which provider connection owns this model, not part of
+// the real model id, so hide it from users. Provider ids never contain "/" (see the slugify in
+// src/state/server-settings.js), so the real model id is unambiguously everything after the first one.
 function modelLabel(m) {
-  return m && m.startsWith("nvidia/") ? m.slice("nvidia/".length) + " · NVIDIA" : m;
+  if (!m) return m;
+  const i = m.indexOf("/");
+  return i < 0 ? m : m.slice(i + 1);
 }
 
 // context-fill meter: a small donut showing how full the model's context window is. Turns amber near
@@ -244,7 +248,7 @@ function Composer({
                 )}
                 {(models.length ? models : [effectiveModel]).map(m => (
                   <div key={m} className={"dd-item" + (m === effectiveModel ? " on" : "")} onClick={() => { setModelOverride(m); setModelOpen(false); }}>
-                    <Icon name={m.startsWith("nvidia/") ? "globe" : "bolt"} size={14} style={{ color: m === effectiveModel ? "var(--accent)" : "var(--ink-3)" }} />
+                    <Icon name={m.includes("/") ? "globe" : "bolt"} size={14} style={{ color: m === effectiveModel ? "var(--accent)" : "var(--ink-3)" }} />
                     <span className="mono" style={{ fontSize: 12.5 }}>{modelLabel(m)}</span>
                     {m === effectiveModel && <Icon name="check" size={14} style={{ marginLeft: "auto" }} />}
                   </div>

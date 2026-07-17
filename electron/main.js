@@ -1,8 +1,8 @@
-// electron/main.js — desktop shell around the existing Cortex Express server.
+// electron/main.js — desktop shell around the existing Heap Chat Express server.
 // It boots server.js as a child process (using Electron's own bundled Node, so no
 // separate Node install is needed), waits for the port, then shows it in a window.
 // Day-to-day feature work happens in server.js / public/ — you rarely touch this file.
-const { app, BrowserWindow, ipcMain, dialog, Notification, shell, Menu, Tray, globalShortcut, nativeImage, systemPreferences } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Notification, shell, Menu, Tray, globalShortcut, nativeImage, systemPreferences, desktopCapturer, screen } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
@@ -12,10 +12,10 @@ let autoUpdater = null;
 try { ({ autoUpdater } = require("electron-updater")); } catch {}
 
 // Pin the app name BEFORE app is ready so userData resolves to a stable, branded folder
-// (…/Cortex/) in both dev and packaged builds — otherwise dev would use "…/Electron".
-app.setName("Cortex");
+// (…/Heap Chat/) in both dev and packaged builds — otherwise dev would use "…/Electron".
+app.setName("Heap Chat");
 
-const PORT = Number(process.env.CORTEX_PORT) || 5174;
+const PORT = Number(process.env.HEAPCHAT_PORT) || 5174;
 const BASE_URL = `http://localhost:${PORT}`;
 // In a packaged app, __dirname is inside app.asar (read-only); resolve the server entry from there.
 const SERVER_ENTRY = path.join(__dirname, "..", "server.js");
@@ -27,7 +27,7 @@ let updateInteractive = false;   // true when the user explicitly clicked "Check
 let mainReady = false;           // the main window's React app has mounted + subscribed
 let pendingContinue = null;      // a Quick Ask exchange waiting to be handed to the main window
 
-// deliver a buffered "Continue in Cortex" payload once the renderer is actually listening
+// deliver a buffered "Continue in Heap Chat" payload once the renderer is actually listening
 function flushContinue() {
   if (pendingContinue && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("native:continue-chat", pendingContinue);
@@ -42,7 +42,7 @@ function startServer() {
     ...process.env,
     PORT: String(PORT),
     // packaged app dir is read-only → keep all user data in a writable per-user location
-    CORTEX_DATA_DIR: path.join(app.getPath("userData"), "data"),
+    HEAPCHAT_DATA_DIR: path.join(app.getPath("userData"), "data"),
     // run the Electron binary as a plain Node process for the child (no second Node needed)
     ELECTRON_RUN_AS_NODE: "1",
   };
@@ -50,11 +50,11 @@ function startServer() {
   serverProc.on("exit", (code) => {
     serverProc = null;
     if (code && code !== 0 && !app.isQuitting) {
-      dialog.showErrorBox("Cortex", `The Cortex server stopped unexpectedly (exit ${code}).`);
+      dialog.showErrorBox("Heap Chat", `The Heap Chat server stopped unexpectedly (exit ${code}).`);
     }
   });
   serverProc.on("error", (err) => {
-    dialog.showErrorBox("Cortex", `Could not start the server:\n${err.message}`);
+    dialog.showErrorBox("Heap Chat", `Could not start the server:\n${err.message}`);
   });
 }
 
@@ -138,7 +138,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: "#0f1419",
-    title: "Cortex",
+    title: "Heap Chat",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -192,7 +192,7 @@ function registerNativeBridge() {
     return r.canceled ? [] : r.filePaths;
   });
   ipcMain.handle("native:notify", (_e, { title, body } = {}) => {
-    if (Notification.isSupported()) new Notification({ title: title || "Cortex", body: body || "" }).show();
+    if (Notification.isSupported()) new Notification({ title: title || "Heap Chat", body: body || "" }).show();
     return true;
   });
   ipcMain.handle("native:version", () => app.getVersion());
@@ -200,7 +200,7 @@ function registerNativeBridge() {
   ipcMain.handle("native:quickHide", () => { if (quickWin && !quickWin.isDestroyed()) quickWin.hide(); });
   ipcMain.handle("native:openMain", (_e, payload) => {
     if (quickWin && !quickWin.isDestroyed()) quickWin.hide();
-    if (payload && payload.question) {
+    if (payload && (payload.sessionId || payload.question)) {
       pendingContinue = payload;
       withWindow(() => {});            // surface the main window (creating it if needed)
       if (mainReady) flushContinue();  // already mounted → deliver now; otherwise the renderer flushes on ready
@@ -211,10 +211,24 @@ function registerNativeBridge() {
   // the main window's React app calls this on mount → deliver anything buffered for it
   ipcMain.handle("native:rendererReady", () => { mainReady = true; flushContinue(); });
   ipcMain.handle("native:captureScreenshot", () => captureScreenshot());
+  // "Turn on screenshots" in the Quick Ask share row — surfaces the macOS Screen Recording
+  // prompt (if not yet decided) without actually taking a screenshot, so it reads as a permission grant.
+  ipcMain.handle("native:requestScreenPermission", () => requestScreenPermission());
+  // Quick Ask grows/shrinks to fit its content, like a native popover — pinned to the bottom
+  // edge chosen when it was positioned, so it grows upward instead of drifting off-screen.
+  ipcMain.handle("native:quickResize", (_e, height) => {
+    if (!quickWin || quickWin.isDestroyed()) return;
+    const [w, curH] = quickWin.getSize();
+    const [x] = quickWin.getPosition();
+    const h = Math.max(120, Math.min(640, Math.round(Number(height) || 0)));
+    if (h === curH) return;
+    const bottom = quickBottomY != null ? quickBottomY : quickWin.getPosition()[1] + curH;
+    quickWin.setBounds({ x, y: Math.round(bottom - h), width: w, height: h }, true);
+  });
 }
 
 /* ---- app:action channel ---- tray/menu/hotkey ask the (authenticated) web app to do something.
-   The renderer listens via window.cortex.onAction (see preload.js + app.jsx). */
+   The renderer listens via window.heapchat.onAction (see preload.js + app.jsx). */
 function sendAction(name) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("app:action", name);
 }
@@ -261,15 +275,28 @@ function ensureScreenPermission() {
   const r = dialog.showMessageBoxSync(mainWindow, {
     type: "info", buttons: ["Open Settings", "Cancel"], defaultId: 0, cancelId: 1,
     message: "Allow Screen Recording",
-    detail: "macOS needs Screen Recording permission to capture screenshots.\n\nEnable Cortex under System Settings → Privacy & Security → Screen Recording, then quit and reopen the app.\n\nWhen running from a code editor in development, the permission is attributed to that editor (e.g. “Visual Studio Code”) instead — for a clean test, launch the packaged Cortex app.",
+    detail: "macOS needs Screen Recording permission to capture screenshots.\n\nEnable Heap Chat under System Settings → Privacy & Security → Screen Recording, then quit and reopen the app.\n\nWhen running from a code editor in development, the permission is attributed to that editor (e.g. “Visual Studio Code”) instead — for a clean test, launch the packaged Heap Chat app.",
   });
   if (r === 0) shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
   return false;
 }
+// prompts for Screen Recording access without capturing anything — used by the "Turn on
+// screenshots" button. desktopCapturer.getSources() is the standard trick to raise the OS
+// prompt on an undetermined status; screencapture itself would open the interactive UI instead.
+async function requestScreenPermission() {
+  if (process.platform !== "darwin") return true;
+  const status = systemPreferences.getMediaAccessStatus("screen");
+  if (status === "granted") return true;
+  if (status === "not-determined") {
+    try { await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } }); } catch {}
+    return systemPreferences.getMediaAccessStatus("screen") === "granted";
+  }
+  return ensureScreenPermission();   // denied/restricted → guide to Settings
+}
 function captureScreenshot() {
   if (process.platform !== "darwin") { dialog.showMessageBox(mainWindow, { message: "Screenshot capture is macOS-only for now." }); return; }
   if (!ensureScreenPermission()) return;
-  const tmp = path.join(app.getPath("temp"), `cortex-shot-${Date.now()}.png`);
+  const tmp = path.join(app.getPath("temp"), `heapchat-shot-${Date.now()}.png`);
   const proc = spawn("screencapture", ["-i", tmp]);   // -i = interactive region/window selection
   proc.on("exit", () => {
     let buf = null; try { buf = fs.readFileSync(tmp); } catch {}
@@ -282,22 +309,39 @@ function captureScreenshot() {
   });
 }
 
-/* ---- Quick Ask: a small, always-on-top Spotlight-style panel ---- */
+/* ---- Quick Ask: a small, always-on-top floating popover (Claude-style quick entry) ----
+   Always docked bottom-center of the active display, like a global command bar. The panel
+   grows upward as its content grows (see native:quickResize below), so the bottom edge — not
+   the top — stays put; quickBottomY remembers that fixed edge across resizes. */
 let quickWin = null;
+let quickBottomY = null;
+const QUICK_BOTTOM_MARGIN = 64;
+function activeWorkArea() {
+  return screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+}
+function positionQuickWin() {
+  if (!quickWin || quickWin.isDestroyed()) return;
+  const wa = activeWorkArea();
+  const [w, h] = quickWin.getSize();
+  const x = Math.round(wa.x + (wa.width - w) / 2);
+  quickBottomY = wa.y + wa.height - QUICK_BOTTOM_MARGIN;
+  quickWin.setPosition(x, Math.round(quickBottomY - h));
+}
 function toggleQuickAsk() {
   if (quickWin && !quickWin.isDestroyed()) {
     if (quickWin.isVisible()) { quickWin.hide(); return; }
+    positionQuickWin();
     quickWin.show(); quickWin.focus(); return;
   }
   quickWin = new BrowserWindow({
-    width: 660, height: 480, frame: false, resizable: false, alwaysOnTop: true, skipTaskbar: true,
-    backgroundColor: "#0f1419", show: false, fullscreenable: false,
+    width: 640, height: 220, frame: false, resizable: false, alwaysOnTop: true, skipTaskbar: true,
+    transparent: true, backgroundColor: "#00000000", hasShadow: true, show: false, fullscreenable: false,
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false },
   });
   quickWin.loadURL(BASE_URL + "?quick=1");
-  quickWin.once("ready-to-show", () => { quickWin.show(); quickWin.focus(); });
+  quickWin.once("ready-to-show", () => { positionQuickWin(); quickWin.show(); quickWin.focus(); });
   quickWin.on("blur", () => { if (quickWin && !quickWin.webContents.isDevToolsOpened()) quickWin.hide(); });   // dismiss like Spotlight
-  quickWin.on("closed", () => { quickWin = null; });
+  quickWin.on("closed", () => { quickWin = null; quickBottomY = null; });
   quickWin.webContents.setWindowOpenHandler(({ url }) => { if (!url.startsWith(BASE_URL)) shell.openExternal(url); return { action: "deny" }; });
 }
 
@@ -307,20 +351,22 @@ function createTray() {
     // use a bundled icon (build/ isn't packaged; public/ is) and size it down for the tray
     const img = nativeImage.createFromPath(path.join(__dirname, "..", "public", "icon-192.png")).resize({ width: 18, height: 18 });
     tray = new Tray(img);
-    tray.setToolTip("Cortex");
+    tray.setToolTip("Heap Chat");
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Open Cortex", click: () => summon() },
+      { label: "Open Heap Chat", click: () => summon() },
       { label: "New chat", accelerator: "CmdOrCtrl+N", click: () => summon("new-chat") },
       { label: "Quick Ask…", accelerator: "CmdOrCtrl+Shift+A", click: () => toggleQuickAsk() },
       ...(process.platform === "darwin" ? [{ label: "Capture Screenshot to KB", accelerator: "CmdOrCtrl+Shift+2", click: () => captureScreenshot() }] : []),
       { type: "separator" },
-      { label: "Quit Cortex", click: () => { app.isQuitting = true; app.quit(); } },
+      { label: "Quit Heap Chat", click: () => { app.isQuitting = true; app.quit(); } },
     ]));
-    tray.on("click", () => summon());
+    // clicking the menu-bar icon itself opens the quick-entry popover (like Claude desktop),
+    // right-click / long-press still shows the full context menu above.
+    tray.on("click", () => toggleQuickAsk());
   } catch (e) { console.error("tray:", e.message); }
 }
 
-/* ---- global hotkey: summon Cortex to a fresh chat from anywhere ---- */
+/* ---- global hotkey: summon Heap Chat to a fresh chat from anywhere ---- */
 function registerShortcuts() {
   try {
     globalShortcut.register("CommandOrControl+Shift+A", () => toggleQuickAsk());        // Spotlight-style Quick Ask
@@ -381,7 +427,7 @@ function setupAutoUpdate() {
   autoUpdater.on("update-downloaded", (info) => {
     const r = dialog.showMessageBoxSync(mainWindow, {
       type: "info", buttons: ["Restart now", "Later"], defaultId: 0, cancelId: 1,
-      message: `Cortex ${info.version} is ready`, detail: "Restart to finish updating.",
+      message: `Heap Chat ${info.version} is ready`, detail: "Restart to finish updating.",
     });
     if (r === 0) { app.isQuitting = true; autoUpdater.quitAndInstall(); }
   });
@@ -411,7 +457,7 @@ if (!app.requestSingleInstanceLock()) {
     if (paths.length) ingestPaths(paths);
   });
 
-  // macOS: files/folders dropped on the Dock icon or opened via "Open With Cortex".
+  // macOS: files/folders dropped on the Dock icon or opened via "Open With Heap Chat".
   // Can fire before the app is ready, so queue until the window exists.
   const pendingOpen = [];
   app.on("open-file", (e, p) => { e.preventDefault(); if (app.isReady() && mainWindow) ingestPaths([p]); else pendingOpen.push(p); });
@@ -423,7 +469,7 @@ if (!app.requestSingleInstanceLock()) {
     try {
       await waitForServer();
     } catch (e) {
-      dialog.showErrorBox("Cortex", `The server didn't come up:\n${e.message}`);
+      dialog.showErrorBox("Heap Chat", `The server didn't come up:\n${e.message}`);
     }
     createWindow();
     createTray();

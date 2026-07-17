@@ -1,15 +1,15 @@
 // electron/preload.js — the ONLY bridge between the web app and native capabilities.
 // Runs with contextIsolation, so it exposes a small, explicit, safe surface on
-// window.cortex. The frontend can feature-detect it:
+// window.heapchat. The frontend can feature-detect it:
 //
-//   if (window.cortex) { const dir = await window.cortex.pickFolder(); ... }
+//   if (window.heapchat) { const dir = await window.heapchat.pickFolder(); ... }
 //   else { /* running in a plain browser — use the in-app folder picker */ }
 //
 // To add a native feature later: add an ipcMain.handle() in main.js and a matching
 // method here. Nothing else in the app needs to change.
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("cortex", {
+contextBridge.exposeInMainWorld("heapchat", {
   isDesktop: true,
   platform: process.platform,
   pickFolder: (defaultPath) => ipcRenderer.invoke("native:pickFolder", defaultPath),
@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld("cortex", {
   // Quick Ask panel controls (used by the ?quick window)
   quickHide: () => ipcRenderer.invoke("native:quickHide"),
   openMain: (payload) => ipcRenderer.invoke("native:openMain", payload),
+  requestScreenPermission: () => ipcRenderer.invoke("native:requestScreenPermission"),
+  quickResize: (height) => ipcRenderer.invoke("native:quickResize", height),
   // main window: continue a Quick Ask exchange as a real chat
   onContinueChat: (cb) => {
     const fn = (_e, data) => cb(data);

@@ -10,7 +10,8 @@ const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 const exifr = require("exifr");
-const { OLLAMA_MODEL, OLLAMA_URL, OLLAMA_KEEP_ALIVE } = require("../config");
+const { OLLAMA_MODEL, OLLAMA_KEEP_ALIVE } = require("../config");
+const ollamaConn = require("../llm/ollama-conn");
 const { kindOf, extOf, fmtSize, fmtDate, TEXTLIKE, isImageFile, safeName } = require("../util/files");
 const { stripThink, fitCtx, snippetFor, buildProvenance } = require("../util/text");
 const { tableSpec, chartSpec, numericCol, seriesRenders, parseRecords, findRecords, rendersFromObjects, RENDER_MIN_ROWS } = require("../media/render");
@@ -26,8 +27,8 @@ const { dtGenerate, dtEdit, dtEcho } = require("../media/drawthings");
 const { saveGeneratedImage } = require("../media/image-prompt");
 const { describeImage } = require("../llm/vision");
 const { completeJSON, completeText } = require("../llm/ollama");
-const { providerOf: modelProviderOf, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("../llm/router");
-const nvidiaLLM = require("../llm/nvidia");
+const { providerOf: modelProviderOf, bareModel: routedBareModel, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("../llm/router");
+const providerLLM = require("../llm/providers");
 const { addMemory, sysInfoBlock } = require("../llm/memory");
 const { addSkill, findSkills, markSkillUsed } = require("../llm/skills");
 const { getTags, setTags, imageMeta, tagStore, faceStore, placeNames, persistTags, persistImageMeta, persistPlaceNames } = require("../state/sidecars");
@@ -896,13 +897,13 @@ function agentToolMechanics({ autoMem = true, web = false, memory = true, connec
 }
 
 function agentSys(domainLabel, autoMem = true, web = false, deep = false, user = null, memBlock = "", imageGen = false) {
-  if (deep) return "You are Cortex in RESEARCH mode. The user wants a thorough, well-sourced answer — take your time and use many sources.\n" +
+  if (deep) return "You are Heap Chat in RESEARCH mode. The user wants a thorough, well-sourced answer — take your time and use many sources.\n" +
     "Process: (1) break the question into sub-topics; (2) for each, search the user's files (search_docs, find_text, read_file/read_section)" + (web ? " AND the web (run SEVERAL focused web_search queries, then read_url the most promising results in full)" : "") + "; (3) gather corroborating facts from MULTIPLE sources before concluding.\n" +
     "Keep searching and reading until you have solid coverage (you have many steps). Do not stop after one search.\n" +
     "Then write a STRUCTURED REPORT: a short summary, then clear sections with headings, specific facts and figures, and a citation after every claim that came from a source (a URL [like this](url) for web, or the filename in [brackets] for your files). End with a 'Sources' list. Be comprehensive and precise; never pad or invent.\n" +
     "You may include Mermaid diagrams (```mermaid — keep them simple and valid: `flowchart TD` or `sequenceDiagram`, quote node labels that contain spaces/punctuation, avoid special characters) and LaTeX math ($$…$$, \\(…\\)) where they clarify. Call make_chart for any data you want to plot." +
     memBlock;
-  return "You are Cortex, a helpful assistant that can use tools to search and work with " + domainLabel + ". " +
+  return "You are Heap Chat, a helpful assistant that can use tools to search and work with " + domainLabel + ". " +
     "When a request needs the user's files, immediately call the appropriate tool to do it — do NOT describe your capabilities or list what you can do; just perform the task. " +
     "Use search_docs to find content, find_text for an exact string, query_csv for spreadsheet math, read_file/read_section to read a document, extract_table to pull fields from many documents into a table, find_photos_of to find photos of a named person (face recognition); " +
     "only rename, delete, tag, save, or open when the user explicitly asks. " +
@@ -962,10 +963,11 @@ async function streamReport(model, messages, options, write, tag) {
   const split = makeThinkSplitter(
     t => write({ message: { thinking: t, ...(tag ? { agent: tag } : {}) } }),
     c => { content += c; write({ message: { content: c } }); });
-  if (modelProviderOf(model) === "nvidia") {
+  const _pid = modelProviderOf(model);
+  if (_pid !== "ollama") {
     try {
-      await nvidiaLLM.streamChatTurn({
-        model: model.slice("nvidia/".length), messages, temperature: options && options.temperature,
+      await providerLLM.streamChatTurn(_pid, {
+        model: routedBareModel(model), messages, temperature: options && options.temperature,
         onContent: c => split.push(c),
         onThinking: t => write({ message: { thinking: t, ...(tag ? { agent: tag } : {}) } }),
       });
@@ -973,7 +975,7 @@ async function streamReport(model, messages, options, write, tag) {
     split.flush();
     return content;
   }
-  const up = await fetch(`${OLLAMA_URL}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, messages, stream: true, think: false, options }) });
+  const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, { method: "POST", headers: ollamaConn.headers(), body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, messages, stream: true, think: false, options }) });
   if (!up.ok || !up.body) return "";
   const reader = up.body.getReader(); const dec = new TextDecoder(); let buf = "";
   for (;;) {
@@ -1272,12 +1274,12 @@ async function runAgentTurn({ agent, task, chosen, ctx, write, toolOpts, context
     const numCtx = Math.max(contextWindow || 0, [4096, 8192, 16384, 32768, 65536, 131072].find(b => b >= need) || 131072);
     let content, toolCalls;
     try {
-      if (modelProviderOf(model) === "nvidia") {
-        const r = await nvidiaLLM.completeWithTools({ model: model.slice("nvidia/".length), messages: msgs, tools: defs, temperature: agent.temperature ?? 0.4, maxTokens: agent.maxTokens || 1500 });
+      if (modelProviderOf(model) !== "ollama") {
+        const r = await providerLLM.completeWithTools(modelProviderOf(model), { model: routedBareModel(model), messages: msgs, tools: defs, temperature: agent.temperature ?? 0.4, maxTokens: agent.maxTokens || 1500 });
         content = r.content; toolCalls = r.toolCalls;
       } else {
-        const up = await fetch(`${OLLAMA_URL}/api/chat`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
+        const up = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+          method: "POST", headers: ollamaConn.headers(),
           body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, messages: msgs, stream: false, think: false,
             ...(defs ? { tools: defs } : {}),
             options: { temperature: agent.temperature ?? 0.4, num_predict: agent.maxTokens || 1500, num_ctx: numCtx } }),

@@ -7,7 +7,8 @@
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
-const { DATA_DIR, OLLAMA_URL, OLLAMA_KEEP_ALIVE } = require("../config");
+const { DATA_DIR, OLLAMA_KEEP_ALIVE } = require("../config");
+const ollamaConn = require("../llm/ollama-conn");
 const { writeJSONAtomic } = require("../util/json-store");
 const { extOf, kindOf, TEXTLIKE, isImageFile } = require("../util/files");
 const { getTags, imageMeta } = require("../state/sidecars");
@@ -79,8 +80,8 @@ async function embed(inputs) {
   const out = [];
   for (let i = 0; i < inputs.length; i += 32) {
     const batch = inputs.slice(i, i + 32);
-    const r = await fetch(`${OLLAMA_URL}/api/embed`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch(`${ollamaConn.baseUrl()}/api/embed`, {
+      method: "POST", headers: ollamaConn.headers(),
       body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model: EMBED_MODEL, input: batch }),
     });
     if (!r.ok) throw new Error(`embed ${r.status}: ${await r.text().catch(() => "")}`);

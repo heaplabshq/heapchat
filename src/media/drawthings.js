@@ -3,7 +3,7 @@
    via a locally-running Draw Things "API Server" in HTTP mode.
 
    Enable it in the Draw Things app: Advanced → API Server → Protocol: HTTP,
-   Port: 7860 (and bind to your LAN, not localhost-only, if Cortex runs on a
+   Port: 7860 (and bind to your LAN, not localhost-only, if Heap Chat runs on a
    different machine). This speaks the AUTOMATIC1111-compatible REST API:
      GET  /sdapi/v1/options   → live config (current model lives here)
      POST /sdapi/v1/txt2img   → generate (dtGenerate)

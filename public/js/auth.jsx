@@ -28,7 +28,7 @@ function AuthScreen({ mode, onAuth }) {
       <form className="auth-card" onSubmit={submit}>
         <div className="row center gap-2" style={{ marginBottom: 4 }}>
           <div className="brand-mark"><Icon name="layers" size={18} sw={2} /></div>
-          <span className="x-bold tighter" style={{ fontSize: 21 }}>Cortex</span>
+          <span className="x-bold tighter" style={{ fontSize: 21 }}>Heap Chat</span>
         </div>
         <div className="t-sm ink-3" style={{ textAlign: "center", marginBottom: 16, lineHeight: 1.5 }}>
           {setup
