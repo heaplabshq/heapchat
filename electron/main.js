@@ -140,6 +140,10 @@ function createWindow() {
     backgroundColor: "#0f1419",
     title: "Heap Chat",
     show: false,
+    // packaged builds get this from the electron-builder "icon" config (build/icon.png) baked
+    // into the app bundle; dev/unpackaged runs don't go through that, so Windows/Linux would
+    // otherwise show Electron's default icon in the taskbar without this.
+    icon: path.join(__dirname, "..", "public", "icon-512.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,   // secure defaults — the web page can't touch Node directly,
@@ -463,6 +467,11 @@ if (!app.requestSingleInstanceLock()) {
   app.on("open-file", (e, p) => { e.preventDefault(); if (app.isReady() && mainWindow) ingestPaths([p]); else pendingOpen.push(p); });
 
   app.whenReady().then(async () => {
+    // packaged macOS builds get the Dock icon from the .app bundle (electron-builder's "icon"
+    // config); a dev/unpackaged run shows Electron's own icon instead unless set explicitly here.
+    if (process.platform === "darwin" && !app.isPackaged && app.dock) {
+      try { app.dock.setIcon(nativeImage.createFromPath(path.join(__dirname, "..", "public", "icon-512.png"))); } catch {}
+    }
     registerNativeBridge();
     buildAppMenu();
     startServer();

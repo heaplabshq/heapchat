@@ -1,4 +1,4 @@
-import { Icon } from "./icons.jsx";
+import { Icon, BrandGlyph } from "./icons.jsx";
 // auth.jsx — sign-in + first-run setup screens (multi-tenant)
 function AuthScreen({ mode, onAuth }) {
   const { useState } = React;
@@ -27,7 +27,7 @@ function AuthScreen({ mode, onAuth }) {
     <div className="auth-wrap">
       <form className="auth-card" onSubmit={submit}>
         <div className="row center gap-2" style={{ marginBottom: 4 }}>
-          <div className="brand-mark"><Icon name="layers" size={18} sw={2} /></div>
+          <div className="brand-mark"><BrandGlyph size={18} /></div>
           <span className="x-bold tighter" style={{ fontSize: 21 }}>Heap Chat</span>
         </div>
         <div className="t-sm ink-3" style={{ textAlign: "center", marginBottom: 16, lineHeight: 1.5 }}>

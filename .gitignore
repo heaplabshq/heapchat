@@ -17,6 +17,7 @@ eval/results/
 /SERVER-REFACTOR-PLAN.md
 /UI-REFACTOR-PLAN.md
 /UI-SMOKE.md
+/SHOWCASE-NOTES.md
 
 # Electron build output
 dist/
