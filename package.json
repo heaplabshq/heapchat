@@ -29,7 +29,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "sid7631",
+        "owner": "heaplabshq",
         "repo": "heapchat"
       }
     ],
