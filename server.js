@@ -31,7 +31,7 @@ const { USERS_DIR, userStores, storesFor, kbDirFor, projectKbDirFor, isKbDir } =
 const serverSettings = require("./src/state/server-settings");
 const { users, authSessions, persistUsers, persistAuthSessions, newToken, hashPassword, verifyPassword, publicUser, cleanFolders, createUser, parseCookies, userFromRequest, startSession, migrateLegacyData } = require("./src/auth/accounts");
 const { grantedRoots, canAccessPath, guardPath, accessibleOnly, realResolve } = require("./src/auth/access");
-const { authWall, requireAdmin } = require("./src/auth/middleware");
+const { authWall, requireAdmin, loginLimiter, recordLoginFailure, clearLoginFailures } = require("./src/auth/middleware");
 const { describeImage } = require("./src/llm/vision");
 const { extractText, buildFileContext } = require("./src/rag/extract");
 const { INDEX_DIR, KB_THRESHOLD, indexPath, loadIndex, walkFiles, embed, buildIndex } = require("./src/rag/index");
@@ -90,10 +90,11 @@ app.post("/api/auth/setup", (req, res) => {
     res.json({ user: publicUser(u) });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", loginLimiter, (req, res) => {
   const { username, password } = req.body || {};
   const u = users.find(x => x.username === String(username || "").trim().toLowerCase());
-  if (!u || !verifyPassword(u, password)) return res.status(401).json({ error: "Wrong username or password" });
+  if (!u || !verifyPassword(u, password)) { recordLoginFailure(req); return res.status(401).json({ error: "Wrong username or password" }); }
+  clearLoginFailures(req);
   startSession(res, u);
   res.json({ user: publicUser(u) });
 });
