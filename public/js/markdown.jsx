@@ -8,15 +8,23 @@ const { useRef, useEffect } = React;
 // full Markdown renderer
 if (window.marked && marked.setOptions) marked.setOptions({ gfm: true, breaks: true });
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
-// turn filename mentions (e.g. [report.pdf] or report.pdf) into clickable citation links
+// turn filename mentions (e.g. [report.pdf] or report.pdf) into clickable citation links.
+// Models frequently backtick-quote filenames (`budget.csv`) — injecting an <a> tag inside a
+// code span gets it HTML-escaped by the code renderer (code spans show literal text, by
+// design), so it appears as raw "<a ...>" text instead of a link. Split out code spans/fences
+// first and only linkify the plain-text segments around them.
 function linkifyCites(text, names) {
-  let out = text;
-  for (const name of [...new Set(names)]) {
-    if (!name) continue;
-    const anchor = `<a class="cite" data-cite="${name.replace(/"/g, "&quot;")}">${name}</a>`;
-    out = out.replace(new RegExp("\\[?" + escRe(name) + "\\]?", "g"), anchor);
-  }
-  return out;
+  const segments = text.split(/(```[\s\S]*?```|`[^`\n]*`)/g);
+  return segments.map((seg, i) => {
+    if (i % 2 === 1) return seg;   // odd = the captured code span/fence itself — leave untouched
+    let out = seg;
+    for (const name of [...new Set(names)]) {
+      if (!name) continue;
+      const anchor = `<a class="cite" data-cite="${name.replace(/"/g, "&quot;")}">${name}</a>`;
+      out = out.replace(new RegExp("\\[?" + escRe(name) + "\\]?", "g"), anchor);
+    }
+    return out;
+  }).join("");
 }
 function fmt(text, cites) {
   let src = text || "";

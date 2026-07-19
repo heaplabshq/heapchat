@@ -144,7 +144,7 @@ Where Heap Chat is still catching up: it doesn't yet have voice conversation, a 
 ## Quick start
 
 ```bash
-git clone https://github.com/sid7631/heapchat.git
+git clone https://github.com/heaplabshq/heapchat.git
 cd heapchat
 cp .env.example .env      # then edit .env — see Configuration below
 npm install
@@ -165,7 +165,7 @@ npm run dist:mac      # build a distributable macOS app (dist/)
 npm run dist:win      # build a distributable Windows installer (dist/)
 ```
 
-Packaged builds auto-update via GitHub Releases.
+Packaged builds auto-update via GitHub Releases (once a release is published — see [Releases](https://github.com/heaplabshq/heapchat/releases)).
 
 ## Configuration
 

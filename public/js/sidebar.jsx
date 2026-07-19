@@ -1,4 +1,4 @@
-import { Icon } from "./icons.jsx";
+import { Icon, BrandGlyph } from "./icons.jsx";
 import { sessionSource } from "./chats.jsx";
 
 const { useState, useEffect } = React;
@@ -53,7 +53,7 @@ function Sidebar({
       {/* ── brand ── */}
       <div className="rail-top">
         <div className="brand-mark">
-          <Icon name="layers" size={18} sw={2} />
+          <BrandGlyph size={19} />
         </div>
         <span className="brand-name">Heap Chat</span>
         <button className="side-collapse" onClick={toggleSide}

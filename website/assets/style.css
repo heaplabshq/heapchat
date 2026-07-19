@@ -166,7 +166,11 @@ p { margin: 0; }
 }
 .mockup-bar { display: flex; align-items: center; gap: 7px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
 .mockup-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
-.mockup img { width: 100%; display: block; }
+.mockup img, .mockup-video { width: 100%; display: block; }
+.mockup-caption {
+  max-width: 620px; margin: 16px auto 0; text-align: center;
+  font-size: 13px; color: var(--ink-3); line-height: 1.5;
+}
 
 /* ---------- why grid ---------- */
 .why-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
@@ -281,7 +285,7 @@ table.compare .no { color: var(--ink-4); }
 .getstarted .btn:hover { background: #f2f1ff; }
 .getstarted .btn.ghost { background: transparent; color: #fff; border-color: rgba(255,255,255,0.4); }
 .getstarted .btn.ghost:hover { background: rgba(255,255,255,0.1); }
-.getstarted-actions { display: flex; flex-direction: column; gap: 12px; }
+.getstarted-actions { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
 /* ---------- footer ---------- */
 footer { border-top: 1px solid var(--line); padding: 44px 0 36px; }
@@ -312,4 +316,11 @@ footer { border-top: 1px solid var(--line); padding: 44px 0 36px; }
   .why-grid, .feat-grid { grid-template-columns: 1fr; }
   .section-pad { padding: 64px 0; }
   table.compare { min-width: 620px; }
+}
+@media (max-width: 420px) {
+  /* the GitHub nav button is redundant with the hero/footer links — drop it before anything wraps or overflows */
+  .nav .wrap { gap: 14px; }
+  .nav-cta { gap: 8px; }
+  .nav-cta a.btn:not(.primary) { display: none; }
+  .brand span { font-size: 16px; }
 }

@@ -9,13 +9,12 @@
 <meta property="og:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Heap Chat" />
-<!-- TODO before deploy: og:url/og:image/twitter:image must be absolute URLs on the production domain, or link previews (Slack/X/LinkedIn) won't resolve. -->
-<meta property="og:url" content="/" />
-<meta property="og:image" content="assets/screenshots/chat-agent.png" />
+<meta property="og:url" content="https://chat.heaplabs.dev/" />
+<meta property="og:image" content="https://chat.heaplabs.dev/assets/hero/hero-poster.jpg" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Heap Chat — the AI workspace that actually knows your files" />
 <meta name="twitter:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
-<meta name="twitter:image" content="assets/screenshots/chat-agent.png" />
+<meta name="twitter:image" content="https://chat.heaplabs.dev/assets/hero/hero-poster.jpg" />
 <meta name="theme-color" content="#4F46E5" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#17151a" media="(prefers-color-scheme: dark)" />
 <link rel="icon" href="assets/logo.png" />
@@ -74,7 +73,7 @@
       <a href="#desktop">Desktop app</a>
     </nav>
     <div class="nav-cta">
-      <a class="btn" href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener">
+      <a class="btn" href="https://github.com/heaplabshq/heapchat" target="_blank" rel="noopener">
         <svg aria-hidden="true"><use href="#i-github"/></svg> GitHub
       </a>
       <a class="btn primary" href="#get-started">Get started</a>
@@ -104,7 +103,7 @@
           <h1>Browse your files like a board.<br>Chat with an AI that <em>actually knows</em> what's in them.</h1>
           <p class="lede">Heap Chat turns your folders into a searchable, chattable knowledge base — powered entirely by a local Ollama model. No cloud dependency, no API keys required, no telemetry. The AI lives with your files permanently, instead of visiting them one upload at a time.</p>
           <div class="hero-actions">
-            <a class="btn primary lg" href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-github"/></svg> View on GitHub</a>
+            <a class="btn primary lg" href="https://github.com/heaplabshq/heapchat" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-github"/></svg> View on GitHub</a>
             <a class="btn lg" href="#get-started"><svg aria-hidden="true"><use href="#i-download"/></svg> Get started</a>
           </div>
           <div class="hero-badges">
@@ -117,8 +116,12 @@
       </div>
       <div class="mockup">
         <div class="mockup-bar"><span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span></div>
-        <img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent answering a question, with cited sources, a fact-checked verification badge, and value-level provenance" loading="eager" />
+        <video class="mockup-video" autoplay muted loop playsinline preload="metadata" poster="assets/hero/hero-poster.jpg" aria-label="Heap Chat agent searching a knowledge base, citing sources, and verifying its own answer before showing it">
+          <source src="assets/hero/hero-demo.webm" type="video/webm" />
+          <source src="assets/hero/hero-demo.mp4" type="video/mp4" />
+        </video>
       </div>
+      <p class="mockup-caption">Unedited screen capture, real answer — asking about a receipt and a budget spreadsheet together. Running here on a connected cloud model (OpenRouter); the same trace looks identical on a fully local Ollama model.</p>
     </div>
   </section>
 
@@ -229,7 +232,7 @@
             <li><strong>Deep work mode</strong> — a planner → researcher → drafter → critic roster for hard requests</li>
           </ul>
         </div>
-        <div class="shot-frame"><img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent chat reading a receipt photo and a budget spreadsheet together, with per-line citations, a fact-checked verification pass, and a grounded/verified badge" /></div>
+        <div class="shot-frame"><img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent live tool-use trace — two knowledge-base searches, an itemized receipt table, and citations — while answering a question that spans a receipt photo and a budget spreadsheet" /></div>
       </div>
 
       <div class="showcase-row">
@@ -487,8 +490,9 @@
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-apple"/></svg> macOS</span>
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows</span>
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-globe"/></svg> Self-hosted web / PWA</span>
-            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-download"/></svg> Auto-updates via GitHub Releases</span>
+            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-bolt"/></svg> Runs from source today</span>
           </div>
+          <p style="margin-top:12px;font-size:13px;color:var(--ink-3)">Packaged installers aren't published yet — run <span class="mono">npm run desktop</span> from a clone (see Quick start below) to use the native app today. Auto-update via GitHub Releases is already wired up in the code; it'll apply once signed builds are published.</p>
         </div>
         <div class="quick-mock">
           <div class="quick-mock-top">
@@ -513,12 +517,15 @@
         </div>
         <div class="getstarted-actions">
           <div class="code-block"><span class="c"># clone & install</span>
-git clone https://github.com/sid7631/heapchat.git
+git clone https://github.com/heaplabshq/heapchat.git
 cd heapchat
 cp .env.example .env
 npm install
-npm start</div>
-          <a class="btn" href="https://github.com/sid7631/heapchat#readme" target="_blank" rel="noopener">Read the full docs <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+
+<span class="c"># then pick one:</span>
+npm start<span class="c">        # web app → localhost:5174</span>
+npm run desktop<span class="c"> # native macOS/Windows app</span></div>
+          <a class="btn" href="https://github.com/heaplabshq/heapchat#readme" target="_blank" rel="noopener">Read the full docs <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
         </div>
       </div>
     </div>
@@ -544,10 +551,10 @@ npm start</div>
         </div>
         <div class="foot-col">
           <h4>Project</h4>
-          <a href="https://github.com/sid7631/heapchat" target="_blank" rel="noopener">GitHub</a>
-          <a href="https://github.com/sid7631/heapchat#readme" target="_blank" rel="noopener">Documentation</a>
-          <a href="https://github.com/sid7631/heapchat/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
-          <a href="https://github.com/sid7631/heapchat/issues" target="_blank" rel="noopener">Report an issue</a>
+          <a href="https://github.com/heaplabshq/heapchat" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/heaplabshq/heapchat#readme" target="_blank" rel="noopener">Documentation</a>
+          <a href="https://github.com/heaplabshq/heapchat/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+          <a href="https://github.com/heaplabshq/heapchat/issues" target="_blank" rel="noopener">Report an issue</a>
         </div>
         <div class="foot-col">
           <h4>Requires</h4>

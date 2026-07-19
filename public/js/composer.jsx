@@ -96,6 +96,10 @@ function Composer({
   ];
   const typingCmd = val.startsWith("/") && !val.includes(" ");
   const slashMatches = typingCmd ? SLASH_CMDS.filter(c => c.cmd.startsWith(val.toLowerCase())) : [];
+  const [modelQuery, setModelQuery] = React.useState("");
+  const modelList = models.length ? models : [effectiveModel];
+  const modelNeedle = modelQuery.trim().toLowerCase();
+  const shownModelList = modelNeedle ? modelList.filter(m => modelLabel(m).toLowerCase().includes(modelNeedle)) : modelList;
   return (
     <div className="chat-foot">
       <div className="composer">
@@ -230,7 +234,7 @@ function Composer({
           <div className="comp-right">
           <ContextMeter used={ctxUsed} max={ctxMax} real={ctxReal} />
           <div className="dropdown" style={{ position: "relative" }}>
-            <button className="model-pick" onClick={() => setModelOpen(o => !o)} title="Switch model for this chat">
+            <button className="model-pick" onClick={() => { setModelOpen(o => !o); setModelQuery(""); }} title="Switch model for this chat">
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: online ? "var(--good)" : "var(--ink-4)", flexShrink: 0 }} />
               <span className="mono semi truncate model-pick-name">{modelLabel(effectiveModel)}</span>
               {modelOverride && <span className="model-pick-badge">custom</span>}
@@ -240,13 +244,21 @@ function Composer({
               <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setModelOpen(false)} />
               <div className="dd-menu" style={{ bottom: "calc(100% + 8px)", top: "auto", left: "auto", right: 0, width: 280, maxHeight: 300, overflow: "auto" }}>
                 <div className="dd-label">Model for this chat</div>
+                {modelList.length > 6 && (
+                  <div className="search" style={{ margin: "0 2px 6px" }}>
+                    <Icon name="search" size={14} style={{ color: "var(--ink-3)" }} />
+                    <input autoFocus value={modelQuery} placeholder="Search models…" onChange={e => setModelQuery(e.target.value)} />
+                    {modelQuery && <button className="btn icon sm ghost" onClick={() => setModelQuery("")}><Icon name="x" size={12} /></button>}
+                  </div>
+                )}
                 {modelOverride && (
                   <div className="dd-item" onClick={() => { setModelOverride(null); setModelOpen(false); }}>
                     <Icon name="refresh" size={14} style={{ color: "var(--ink-3)" }} />
                     <span style={{ fontSize: 12.5 }}>Use default (<span className="mono">{modelLabel(defaultModel)}</span>)</span>
                   </div>
                 )}
-                {(models.length ? models : [effectiveModel]).map(m => (
+                {shownModelList.length === 0 && <div className="t-xs ink-3" style={{ padding: "8px 10px" }}>No models match "{modelQuery}"</div>}
+                {shownModelList.map(m => (
                   <div key={m} className={"dd-item" + (m === effectiveModel ? " on" : "")} onClick={() => { setModelOverride(m); setModelOpen(false); }}>
                     <Icon name={m.includes("/") ? "globe" : "bolt"} size={14} style={{ color: m === effectiveModel ? "var(--accent)" : "var(--ink-3)" }} />
                     <span className="mono" style={{ fontSize: 12.5 }}>{modelLabel(m)}</span>

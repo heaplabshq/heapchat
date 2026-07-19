@@ -1,4 +1,4 @@
-import { Icon } from "./icons.jsx";
+import { Icon, BrandGlyph } from "./icons.jsx";
 // setup.jsx — first-run gate: detect Ollama, guide install, and pull a model.
 // Shown by the app only when Ollama is unreachable or no model is installed.
 const { useState: useSt0, useEffect: useEf0, useRef: useRf0 } = React;
@@ -86,7 +86,7 @@ function OllamaSetup({ onDone, onModel, onSkip }) {
     <div className="setup-screen">
       <div className="setup-card">
         <div className="setup-brand">
-          <div className="brand-mark"><Icon name="layers" size={22} sw={2} /></div>
+          <div className="brand-mark"><BrandGlyph size={22} /></div>
           <span className="x-bold tighter" style={{ fontSize: 20 }}>Heap Chat</span>
         </div>
 

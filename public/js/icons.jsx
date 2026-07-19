@@ -1,5 +1,21 @@
 // icons.jsx — refined line-icon set, palettes, and shared helpers (from the Heap Chat design)
 
+// The brand mark — a card peeking out behind a chat bubble ("heap" + "chat" as one shape).
+// Filled, not stroked, unlike the rest of this file's line icons — it's the app-icon glyph
+// (build/icon.png, PWA icons), reused here so the sidebar/login/setup mark is the same mark, not
+// a lookalike. `currentColor` so it inherits .brand-mark's white-on-accent-gradient like any Icon.
+function BrandGlyph({ size = 18, style }) {
+  // viewBox is cropped tight to the shape's own bounds (not the 0-100 square the app-icon tile
+  // uses, which has ~38% padding baked in for the squircle) — so `size` behaves like Icon's,
+  // filling the box instead of floating small inside it.
+  return (
+    <svg width={size} height={size} viewBox="15 15 70 71" fill="none" style={style}>
+      <rect x="27" y="24" width="46" height="34" rx="9" fill="currentColor" opacity=".5" transform="rotate(-6 50 41)" />
+      <path fill="currentColor" d="M30 34 h40 a9 9 0 0 1 9 9 v18 a9 9 0 0 1 -9 9 h-24 l-11 10 v-10 h-5 a9 9 0 0 1 -9 -9 v-18 a9 9 0 0 1 9 -9 z" />
+    </svg>
+  );
+}
+
 function Icon({ name, size = 18, sw = 1.7, style }) {
   const p = { fill: "none", stroke: "currentColor", strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round" };
   const P = {
@@ -129,5 +145,5 @@ function kindFromName(name) {
 }
 
 export {
-  Icon, PAL, palFor, photoStyle, DOC, docMeta, KIND_META, waveHeights, suggestionsFor, hashStr, fileUrl, kindFromName, thumbUrl, downloadJSON,
+  Icon, BrandGlyph, PAL, palFor, photoStyle, DOC, docMeta, KIND_META, waveHeights, suggestionsFor, hashStr, fileUrl, kindFromName, thumbUrl, downloadJSON,
 };

@@ -885,6 +885,7 @@ function App({ user }) {
         <AgentEditModal
           agent={Object.keys(agentEditModal).length ? agentEditModal : null}
           models={models}
+          providers={config ? (config.providers || []) : []}
           onSave={a => { setAgentEditModal(null); reloadAgents(); }}
           onDelete={a => { setAgentEditModal(null); reloadAgents(); if (activeAgentId === a.id) { setActiveAgentId(null); } }}
           onClose={() => setAgentEditModal(null)} />

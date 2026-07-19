@@ -1,4 +1,5 @@
 import { Icon, downloadJSON } from "./icons.jsx";
+import { ModelSelect } from "./settings.jsx";
 // agents.jsx — user-defined custom agents: own system prompt (full replace of the default
 // persona), model/sampling overrides, and per-agent tool capability toggles.
 const { useState: useAg, useEffect: useAgE, useRef: useAgR } = React;
@@ -38,7 +39,7 @@ function AgentToggle({ on, label, hint, onToggle }) {
   );
 }
 
-function AgentEditModal({ agent, models = [], onSave, onClose, onDelete }) {
+function AgentEditModal({ agent, models = [], providers = [], onSave, onClose, onDelete }) {
   const [name, setName]       = useAg(agent ? agent.name : "");
   const [description, setDesc]= useAg(agent ? agent.description : "");
   const [systemPrompt, setSp] = useAg(agent ? agent.systemPrompt : "");
@@ -50,8 +51,6 @@ function AgentEditModal({ agent, models = [], onSave, onClose, onDelete }) {
   const [icon, setIcon]       = useAg(agent ? agent.icon : AGENT_ICONS[0]);
   const [busy, setBusy]       = useAg(false);
   const [err, setErr]         = useAg(null);
-
-  const modelOpts = (models && models.length) ? models : (model ? [model] : []);
 
   async function submit(e) {
     e.preventDefault();
@@ -110,11 +109,7 @@ function AgentEditModal({ agent, models = [], onSave, onClose, onDelete }) {
           <div className="row gap-3 wrap" style={{ marginBottom: 14 }}>
             <div className="col grow" style={{ gap: 5, minWidth: 200 }}>
               <span className="field-label">Model <span className="ink-3">(optional override)</span></span>
-              <select className="select mono" style={{ fontSize: 13 }} value={model} onChange={e => setModel(e.target.value)}>
-                <option value="">Default</option>
-                {model && !modelOpts.includes(model) && <option value={model}>{model} (not installed)</option>}
-                {modelOpts.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <ModelSelect value={model} models={models} providers={providers} allowDefault defaultLabel="Default" onChange={setModel} />
             </div>
           </div>
           <div className="row gap-3 wrap" style={{ marginBottom: 16 }}>

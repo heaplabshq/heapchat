@@ -50,15 +50,22 @@ function parseCookies(req) {
   String(req.headers.cookie || "").split(";").forEach(p => { const i = p.indexOf("="); if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); });
   return out;
 }
+const SESSION_IDLE_MS = 30 * 24 * 60 * 60 * 1000;        // sessions expire after 30 days of inactivity
+const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000;         // ...but we only persist the updated lastSeen at most every 5min, so an active user isn't hitting disk on every request
 function userFromRequest(req) {
-  const sess = authSessions[parseCookies(req).heapchat_sid];
-  return (sess && users.find(u => u.id === sess.userId)) || null;
+  const sid = parseCookies(req).heapchat_sid;
+  const sess = authSessions[sid];
+  if (!sess) return null;
+  const now = Date.now();
+  if (now - sess.lastSeen > SESSION_IDLE_MS) { delete authSessions[sid]; persistAuthSessions(); return null; }
+  if (now - sess.lastSeen > SESSION_TOUCH_INTERVAL_MS) { sess.lastSeen = now; persistAuthSessions(); }
+  return users.find(u => u.id === sess.userId) || null;
 }
 function startSession(res, user) {
   const sid = newToken();
   authSessions[sid] = { userId: user.id, createdAt: Date.now(), lastSeen: Date.now() };
   persistAuthSessions();
-  res.setHeader("Set-Cookie", `heapchat_sid=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000`);
+  res.setHeader("Set-Cookie", `heapchat_sid=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_IDLE_MS / 1000}`);
 }
 // first account adopts the single-tenant data layout: move kb/, chats, memory, mcp into its dir
 // and re-key the path-keyed sidecars so vision descriptions/tags/hashes of old KB files survive.
