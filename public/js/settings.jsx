@@ -65,14 +65,51 @@ function modelOptLabel(m, providers) {
   return hit ? m.slice(hit.id.length + 1) + " · " + hit.name : m;
 }
 
-function ModelSelect({ value, models, providers, onChange }) {
+// Searchable model dropdown — a styled button that opens a dd-menu with a filter box once the
+// list is long enough to need one. `allowDefault` adds a "use the chat's/parent's default" row
+// that clears the value to "" (used for per-agent model overrides, which fall back otherwise).
+function ModelSelect({ value, models, providers, onChange, allowDefault, defaultLabel = "Default" }) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState("");
   const opts = (models && models.length) ? models : (value ? [value] : []);
   const missing = value && !opts.includes(value);
+  const full = missing ? [value, ...opts] : opts;
+  const needle = q.trim().toLowerCase();
+  const filtered = needle ? full.filter(m => modelOptLabel(m, providers).toLowerCase().includes(needle)) : full;
+  const label = value ? (modelOptLabel(value, providers) + (missing ? " (not installed)" : "")) : defaultLabel;
   return (
-    <select className="select mono" style={{ maxWidth: 360, fontSize: 13 }} value={value} onChange={e => onChange(e.target.value)}>
-      {missing && <option value={value}>{modelOptLabel(value, providers)} (not installed)</option>}
-      {opts.map(m => <option key={m} value={m}>{modelOptLabel(m, providers)}</option>)}
-    </select>
+    <div className="dropdown" style={{ position: "relative", display: "inline-block" }}>
+      <button type="button" className="select mono" style={{ maxWidth: 360, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, cursor: "pointer" }}
+        onClick={() => { setOpen(o => !o); setQ(""); }}>
+        <span className="truncate">{label}</span>
+        <Icon name="chevD" size={12} style={{ color: "var(--ink-3)", flexShrink: 0 }} />
+      </button>
+      {open && <>
+        <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setOpen(false)} />
+        <div className="dd-menu" style={{ left: 0, right: "auto", width: 320, maxHeight: 320, overflow: "auto" }}>
+          {full.length > 6 && (
+            <div className="search" style={{ marginBottom: 6 }}>
+              <Icon name="search" size={14} style={{ color: "var(--ink-3)" }} />
+              <input autoFocus value={q} placeholder="Search models…" onChange={e => setQ(e.target.value)} />
+              {q && <button className="btn icon sm ghost" onClick={() => setQ("")}><Icon name="x" size={12} /></button>}
+            </div>
+          )}
+          {allowDefault && (
+            <div className={"dd-item" + (!value ? " on" : "")} onClick={() => { onChange(""); setOpen(false); }}>
+              <span style={{ fontSize: 12.5 }}>{defaultLabel}</span>
+              {!value && <Icon name="check" size={14} style={{ marginLeft: "auto" }} />}
+            </div>
+          )}
+          {full.length > 0 && filtered.length === 0 && <div className="t-xs ink-3" style={{ padding: "8px 10px" }}>No models match "{q}"</div>}
+          {filtered.map(m => (
+            <div key={m} className={"dd-item" + (m === value ? " on" : "")} onClick={() => { onChange(m); setOpen(false); }}>
+              <span className="mono truncate" style={{ fontSize: 12.5 }}>{modelOptLabel(m, providers)}{missing && m === value ? " (not installed)" : ""}</span>
+              {m === value && <Icon name="check" size={14} style={{ marginLeft: "auto", flexShrink: 0 }} />}
+            </div>
+          ))}
+        </div>
+      </>}
+    </div>
   );
 }
 
@@ -146,7 +183,7 @@ function McpConnectors() {
   );
 }
 
-function DeepWorkAgents({ models }) {
+function DeepWorkAgents({ models, providers }) {
   const [roster, setRoster] = React.useState(null);
   const [openKind, setOpenKind] = React.useState(null);
   const [draft, setDraft] = React.useState({});      // kind -> edited fields (seeded on first open)
@@ -214,18 +251,8 @@ function DeepWorkAgents({ models }) {
                     </div>
                     <div className="field">
                       <span className="field-label">Model</span>
-                      {(() => {
-                        const cur = d.model ?? a.model ?? "";
-                        const opts = (models && models.length) ? models : (cur ? [cur] : []);
-                        const missing = cur && !opts.includes(cur);
-                        return (
-                          <select className="select mono" style={{ maxWidth: 360, fontSize: 13 }} value={cur} onChange={e => setField(a.kind, "model", e.target.value)}>
-                            <option value="">Default — the chat's model</option>
-                            {missing && <option value={cur}>{cur} (not installed)</option>}
-                            {opts.map(m => <option key={m} value={m}>{m}</option>)}
-                          </select>
-                        );
-                      })()}
+                      <ModelSelect value={d.model ?? a.model ?? ""} models={models} providers={providers} allowDefault defaultLabel="Default — the chat's model"
+                        onChange={m => setField(a.kind, "model", m)} />
                       <span className="field-hint">Run this agent on a different local model — e.g. a coding model for the Drafter. Leave on Default to use whatever model the chat is using.</span>
                     </div>
                     {a.tools && a.allToolNames && (
@@ -637,17 +664,24 @@ function ProviderCard({ provider, onSaved, onDeleted, onCancelNew }) {
   const [agentModel, setAgentModel] = React.useState(provider ? provider.agentModel : "");
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState(null);
+  const [modelQuery, setModelQuery] = React.useState("");
   function note(m) { setMsg(m); setTimeout(() => setMsg(null), 2500); }
 
   const discovered = (test && test.ok) ? test.models : (provider ? provider.models : []);
+  const needle = modelQuery.trim().toLowerCase();
+  const shownModels = needle ? discovered.filter(m => m.toLowerCase().includes(needle)) : discovered;
 
   async function runTest() {
     setTest("busy");
+    setModelQuery("");
     const r = await testProviderConnection("openai", form.baseUrl, form.apiKey);
     setTest(r);
     if (r.ok) setSelected(new Set(r.models));   // default: everything just discovered is enabled
   }
   function toggleModel(m) { setSelected(prev => { const n = new Set(prev); n.has(m) ? n.delete(m) : n.add(m); return n; }); }
+  // operate on shownModels (the filtered view) so "select all" while searching only touches matches
+  function selectAllShown() { setSelected(prev => new Set([...prev, ...shownModels])); }
+  function deselectAllShown() { setSelected(prev => { const n = new Set(prev); shownModels.forEach(m => n.delete(m)); return n; }); }
   async function save() {
     if (!form.name.trim() || !form.baseUrl.trim()) { note("Name and base URL are required"); return; }
     setBusy(true);
@@ -705,9 +739,23 @@ function ProviderCard({ provider, onSaved, onDeleted, onCancelNew }) {
       {test && test !== "busy" && !test.ok && <span className="t-sm" style={{ color: "var(--warn)" }}>Couldn't connect — {test.error}</span>}
       {discovered.length > 0 && (
         <div className="col" style={{ gap: 4 }}>
-          <span className="field-label">Models <span className="ink-3" style={{ fontWeight: 400 }}>({selected.size} of {discovered.length} enabled)</span></span>
+          <div className="row gap-2" style={{ alignItems: "center" }}>
+            <span className="field-label" style={{ marginBottom: 0 }}>Models <span className="ink-3" style={{ fontWeight: 400 }}>({selected.size} of {discovered.length} enabled)</span></span>
+            <span className="row gap-2" style={{ marginLeft: "auto" }}>
+              <button type="button" className="btn xs ghost" disabled={!shownModels.length || shownModels.every(m => selected.has(m))} onClick={selectAllShown}>Select all</button>
+              <button type="button" className="btn xs ghost" disabled={!shownModels.length || shownModels.every(m => !selected.has(m))} onClick={deselectAllShown}>Deselect all</button>
+            </span>
+          </div>
+          {discovered.length > 6 && (
+            <div className="search" style={{ width: "100%" }}>
+              <Icon name="search" size={14} style={{ color: "var(--ink-3)" }} />
+              <input value={modelQuery} placeholder="Search models…" onChange={e => setModelQuery(e.target.value)} />
+              {modelQuery && <button className="btn icon sm ghost" onClick={() => setModelQuery("")}><Icon name="x" size={12} /></button>}
+            </div>
+          )}
           <div className="col" style={{ gap: 2, maxHeight: 160, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: 6, background: "var(--surface)" }}>
-            {discovered.map(m => (
+            {shownModels.length === 0 && <span className="t-xs ink-3" style={{ padding: "4px 2px" }}>No models match "{modelQuery}"</span>}
+            {shownModels.map(m => (
               <label key={m} className="row gap-2 t-sm mono" style={{ alignItems: "center", padding: "2px 4px", cursor: "pointer" }}>
                 <input type="checkbox" checked={selected.has(m)} onChange={() => toggleModel(m)} />
                 {m}
@@ -719,9 +767,7 @@ function ProviderCard({ provider, onSaved, onDeleted, onCancelNew }) {
       {selected.size > 0 && (
         <div className="col" style={{ gap: 3 }}>
           <span className="field-label">Default agent model</span>
-          <select className="select mono" style={{ maxWidth: 360, fontSize: 13 }} value={agentModel} onChange={e => setAgentModel(e.target.value)}>
-            {Array.from(selected).map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <ModelSelect value={agentModel} models={Array.from(selected)} onChange={setAgentModel} />
         </div>
       )}
       <div className="row gap-2">
@@ -924,7 +970,7 @@ function SettingsPage({ settings, set, onSave, onReset, online, models, account,
           <textarea className="textarea mono" style={{ fontSize: 12.5, minHeight: 130 }} value={settings.systemPrompt} onChange={e => set({ systemPrompt: e.target.value })} />
         </div>
 
-        <DeepWorkAgents models={models} />
+        <DeepWorkAgents models={models} providers={providers} />
 
         <AccountSection account={account} />
 
@@ -939,4 +985,4 @@ function SettingsPage({ settings, set, onSave, onReset, online, models, account,
   );
 }
 
-export { DEFAULT_SETTINGS, SettingsPage };
+export { DEFAULT_SETTINGS, SettingsPage, ModelSelect };
