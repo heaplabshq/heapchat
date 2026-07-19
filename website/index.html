@@ -9,13 +9,12 @@
 <meta property="og:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Heap Chat" />
-<!-- TODO before deploy: og:url/og:image/twitter:image must be absolute URLs on the production domain, or link previews (Slack/X/LinkedIn) won't resolve. -->
-<meta property="og:url" content="/" />
-<meta property="og:image" content="assets/hero/hero-poster.jpg" />
+<meta property="og:url" content="https://chat.heaplabs.dev/" />
+<meta property="og:image" content="https://chat.heaplabs.dev/assets/hero/hero-poster.jpg" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Heap Chat — the AI workspace that actually knows your files" />
 <meta name="twitter:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
-<meta name="twitter:image" content="assets/hero/hero-poster.jpg" />
+<meta name="twitter:image" content="https://chat.heaplabs.dev/assets/hero/hero-poster.jpg" />
 <meta name="theme-color" content="#4F46E5" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#17151a" media="(prefers-color-scheme: dark)" />
 <link rel="icon" href="assets/logo.png" />
@@ -491,8 +490,9 @@
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-apple"/></svg> macOS</span>
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows</span>
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-globe"/></svg> Self-hosted web / PWA</span>
-            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-download"/></svg> Auto-updates via GitHub Releases</span>
+            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-bolt"/></svg> Runs from source today</span>
           </div>
+          <p style="margin-top:12px;font-size:13px;color:var(--ink-3)">Packaged installers aren't published yet — run <span class="mono">npm run desktop</span> from a clone (see Quick start below) to use the native app today. Auto-update via GitHub Releases is already wired up in the code; it'll apply once signed builds are published.</p>
         </div>
         <div class="quick-mock">
           <div class="quick-mock-top">
@@ -521,7 +521,10 @@ git clone https://github.com/heaplabshq/heapchat.git
 cd heapchat
 cp .env.example .env
 npm install
-npm start</div>
+
+<span class="c"># then pick one:</span>
+npm start<span class="c">        # web app → localhost:5174</span>
+npm run desktop<span class="c"> # native macOS/Windows app</span></div>
           <a class="btn" href="https://github.com/heaplabshq/heapchat#readme" target="_blank" rel="noopener">Read the full docs <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
         </div>
       </div>
