@@ -165,7 +165,7 @@ npm run dist:mac      # build a distributable macOS app (dist/)
 npm run dist:win      # build a distributable Windows installer (dist/)
 ```
 
-Packaged builds auto-update via GitHub Releases.
+Packaged builds auto-update via GitHub Releases (once a release is published — see [Releases](https://github.com/heaplabshq/heapchat/releases)).
 
 ## Configuration
 
