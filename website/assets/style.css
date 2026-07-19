@@ -285,7 +285,7 @@ table.compare .no { color: var(--ink-4); }
 .getstarted .btn:hover { background: #f2f1ff; }
 .getstarted .btn.ghost { background: transparent; color: #fff; border-color: rgba(255,255,255,0.4); }
 .getstarted .btn.ghost:hover { background: rgba(255,255,255,0.1); }
-.getstarted-actions { display: flex; flex-direction: column; gap: 12px; }
+.getstarted-actions { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
 /* ---------- footer ---------- */
 footer { border-top: 1px solid var(--line); padding: 44px 0 36px; }
@@ -316,4 +316,11 @@ footer { border-top: 1px solid var(--line); padding: 44px 0 36px; }
   .why-grid, .feat-grid { grid-template-columns: 1fr; }
   .section-pad { padding: 64px 0; }
   table.compare { min-width: 620px; }
+}
+@media (max-width: 420px) {
+  /* the GitHub nav button is redundant with the hero/footer links — drop it before anything wraps or overflows */
+  .nav .wrap { gap: 14px; }
+  .nav-cta { gap: 8px; }
+  .nav-cta a.btn:not(.primary) { display: none; }
+  .brand span { font-size: 16px; }
 }
