@@ -166,7 +166,11 @@ p { margin: 0; }
 }
 .mockup-bar { display: flex; align-items: center; gap: 7px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
 .mockup-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
-.mockup img { width: 100%; display: block; }
+.mockup img, .mockup-video { width: 100%; display: block; }
+.mockup-caption {
+  max-width: 620px; margin: 16px auto 0; text-align: center;
+  font-size: 13px; color: var(--ink-3); line-height: 1.5;
+}
 
 /* ---------- why grid ---------- */
 .why-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }

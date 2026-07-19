@@ -11,11 +11,11 @@
 <meta property="og:site_name" content="Heap Chat" />
 <!-- TODO before deploy: og:url/og:image/twitter:image must be absolute URLs on the production domain, or link previews (Slack/X/LinkedIn) won't resolve. -->
 <meta property="og:url" content="/" />
-<meta property="og:image" content="assets/screenshots/chat-agent.png" />
+<meta property="og:image" content="assets/hero/hero-poster.jpg" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Heap Chat — the AI workspace that actually knows your files" />
 <meta name="twitter:description" content="Local-first knowledge workspace: browse your files like a board, chat with an agent that cites and self-verifies its sources, remembers you over time, and runs entirely on your machine." />
-<meta name="twitter:image" content="assets/screenshots/chat-agent.png" />
+<meta name="twitter:image" content="assets/hero/hero-poster.jpg" />
 <meta name="theme-color" content="#4F46E5" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#17151a" media="(prefers-color-scheme: dark)" />
 <link rel="icon" href="assets/logo.png" />
@@ -117,8 +117,12 @@
       </div>
       <div class="mockup">
         <div class="mockup-bar"><span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span></div>
-        <img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent answering a question, with cited sources, a fact-checked verification badge, and value-level provenance" loading="eager" />
+        <video class="mockup-video" autoplay muted loop playsinline preload="metadata" poster="assets/hero/hero-poster.jpg" aria-label="Heap Chat agent searching a knowledge base, citing sources, and verifying its own answer before showing it">
+          <source src="assets/hero/hero-demo.webm" type="video/webm" />
+          <source src="assets/hero/hero-demo.mp4" type="video/mp4" />
+        </video>
       </div>
+      <p class="mockup-caption">Unedited screen capture, real answer — asking about a receipt and a budget spreadsheet together. Running here on a connected cloud model (OpenRouter); the same trace looks identical on a fully local Ollama model.</p>
     </div>
   </section>
 
@@ -229,7 +233,7 @@
             <li><strong>Deep work mode</strong> — a planner → researcher → drafter → critic roster for hard requests</li>
           </ul>
         </div>
-        <div class="shot-frame"><img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent chat reading a receipt photo and a budget spreadsheet together, with per-line citations, a fact-checked verification pass, and a grounded/verified badge" /></div>
+        <div class="shot-frame"><img src="assets/screenshots/chat-agent.png" alt="Heap Chat agent live tool-use trace — two knowledge-base searches, an itemized receipt table, and citations — while answering a question that spans a receipt photo and a budget spreadsheet" /></div>
       </div>
 
       <div class="showcase-row">
