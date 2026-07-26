@@ -485,17 +485,21 @@
         <div>
           <span class="eyebrow"><svg aria-hidden="true"><use href="#i-layers"/></svg> Desktop app</span>
           <h2 style="margin-top:16px">A native app, not just a browser tab</h2>
-          <p class="lede" style="margin-top:12px;font-size:15.5px">Heap Chat ships as a real Electron app for macOS (Windows coming) — with a menu-bar Quick Ask popover for a fast, global on-ramp into your knowledge base, alongside the full self-hosted web server for LAN/phone access.</p>
+          <p class="lede" style="margin-top:12px;font-size:15.5px">Heap Chat ships as a real Electron app for macOS and Windows — with a menu-bar Quick Ask popover for a fast, global on-ramp into your knowledge base, alongside the full self-hosted web server for LAN/phone access.</p>
           <div class="platforms">
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-apple"/></svg> macOS</span>
-            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows (build from source)</span>
+            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows</span>
             <span class="plat-pill"><svg aria-hidden="true"><use href="#i-globe"/></svg> Self-hosted web / PWA</span>
           </div>
+          <!-- Version-less filenames on purpose: /releases/latest/download/<name> resolves only if
+               that exact name exists in the newest release, so a versioned filename here silently
+               404s the moment a new version ships. package.json's build.artifactName keeps them stable. -->
           <div class="hero-actions" style="margin-top:18px">
-            <a class="btn primary" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-1.0.0-arm64.dmg"><svg aria-hidden="true"><use href="#i-download"/></svg> Download for macOS (Apple Silicon)</a>
-            <a class="btn" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-1.0.0.dmg"><svg aria-hidden="true"><use href="#i-download"/></svg> Intel</a>
+            <a class="btn primary" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-mac-arm64.dmg"><svg aria-hidden="true"><use href="#i-download"/></svg> Download for macOS (Apple Silicon)</a>
+            <a class="btn" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-mac-x64.dmg"><svg aria-hidden="true"><use href="#i-download"/></svg> Intel</a>
+            <a class="btn" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-win-x64.exe"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows</a>
           </div>
-          <p style="margin-top:12px;font-size:13px;color:var(--ink-3)">Unsigned build (no Apple Developer account yet) — first launch needs right-click → Open → Open to get past Gatekeeper once. <a href="https://github.com/heaplabshq/heapchat/releases" style="color:var(--accent)">All releases</a></p>
+          <p style="margin-top:12px;font-size:13px;color:var(--ink-3)">Unsigned builds (no code-signing certificate yet) — macOS needs right-click → Open → Open on first launch to get past Gatekeeper, and Windows shows a SmartScreen prompt (More info → Run anyway). <a href="https://github.com/heaplabshq/heapchat/releases" style="color:var(--accent)">All releases</a></p>
         </div>
         <div class="quick-mock">
           <div class="quick-mock-top">
