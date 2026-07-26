@@ -23,11 +23,18 @@ on:
       - 'website/**'
       - '.github/workflows/deploy-site.yml'
 
-  # Publishing a release is the moment /releases/latest starts resolving to the new
-  # version, which is what the site's download buttons point at. Redeploying here keeps
-  # the two in lockstep: without it, publishing a release leaves the live site pointing
-  # at the previous version's filenames, which no longer exist in the newest release —
-  # so every download button 404s until someone remembers to redeploy by hand.
+  # Fires only for a release published BY A PERSON. It did not fire for v1.1.0 and never will
+  # for a release release.yml creates: electron-builder publishes using GITHUB_TOKEN, so GitHub
+  # attributes the release to github-actions[bot], and events attributed to GITHUB_TOKEN
+  # deliberately do not start workflow runs (anti-recursion). The ReleaseEvent is emitted — it
+  # just starts nothing. Making this fire would mean publishing with a PAT instead.
+  #
+  # Left in place because it does work for a hand-created release, but it is NOT the safety net
+  # it looks like. What actually decoupled the site from release timing is build.artifactName in
+  # package.json: artifact names carry no version (Heap-Chat-mac-arm64.dmg), so
+  # /releases/latest/download/<name> keeps resolving across releases and the site's links don't
+  # need to change when a new version ships. The one time this mattered was the v1.0.0 → v1.1.0
+  # rename, where the old links pointed at filenames the new release didn't contain.
   release:
     types: [published]
 
