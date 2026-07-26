@@ -157,7 +157,9 @@ You'll need [Ollama](https://ollama.com) running locally with at least a chat mo
 
 ## Desktop app
 
-Heap Chat also runs as a native Electron app. Prebuilt macOS builds (Apple Silicon + Intel) are on the [Releases page](https://github.com/heaplabshq/heapchat/releases/latest) — unsigned for now, so the first launch needs right-click → Open → Open to get past Gatekeeper once. No Windows build yet; build it yourself from a Windows machine.
+Heap Chat also runs as a native Electron app. Prebuilt macOS (Apple Silicon + Intel) and Windows (x64) builds are on the [Releases page](https://github.com/heaplabshq/heapchat/releases/latest).
+
+Both are unsigned for now: macOS needs right-click → Open → Open on first launch to get past Gatekeeper once, and Windows shows a SmartScreen prompt (More info → Run anyway). Note that macOS auto-update does not apply to unsigned builds — update by downloading a new release until a signing certificate is in place.
 
 ```bash
 npm run desktop      # run the desktop shell locally

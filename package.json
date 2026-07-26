@@ -1,6 +1,6 @@
 {
   "name": "heapchat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Heap Chat — browse a folder like a board and chat with a local Ollama model about any file.",
   "author": "sid7631",
   "license": "SEE LICENSE IN LICENSE",
@@ -25,6 +25,7 @@
   "build": {
     "appId": "com.heapchat.app",
     "productName": "Heap Chat",
+    "artifactName": "Heap-Chat-${os}-${arch}.${ext}",
     "icon": "build/icon.png",
     "publish": [
       {
