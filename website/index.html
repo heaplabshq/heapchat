@@ -18,7 +18,12 @@
 <meta name="theme-color" content="#4F46E5" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#17151a" media="(prefers-color-scheme: dark)" />
 <link rel="icon" href="assets/logo.png" />
-<link rel="stylesheet" href="assets/style.css" />
+<!-- ?v= is a cache-busting key, not decoration. These filenames carry no content hash, and for
+     ~4 hours these paths were served with `max-age=31536000, immutable` (see website/_headers) —
+     so every visitor in that window, and Cloudflare's own edge cache, pinned that copy for a
+     YEAR. A changed URL is the only thing that escapes an already-stored immutable entry.
+     Bump v when editing style.css or script.js. -->
+<link rel="stylesheet" href="assets/style.css?v=2" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet" />
@@ -577,6 +582,6 @@ npm run desktop<span class="c"> # native macOS/Windows app</span></div>
   </div>
 </footer>
 
-<script src="assets/script.js"></script>
+<script src="assets/script.js?v=2"></script>   <!-- bump v on edit — see the note by style.css -->
 </body>
 </html>
