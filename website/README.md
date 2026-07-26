@@ -5,19 +5,28 @@ screenshots, and the agent-research patterns it's built on. Plain HTML/CSS/JS �
 no framework, no build step, no external runtime dependencies (only Google Fonts
 is loaded from a CDN).
 
-## Deploy to Netlify
+## Deploy
 
-**Option A — drag and drop:** go to [app.netlify.com/drop](https://app.netlify.com/drop)
-and drag this `website/` folder in. Done.
+Live at [chat.heaplabs.dev](https://chat.heaplabs.dev) on **Cloudflare Pages**, deployed
+automatically by `.github/workflows/deploy-site.yml`. Nothing here needs a manual upload:
 
-**Option B — connect the repo:**
-1. New site from Git → pick this repo.
-2. Base directory: `website`
-3. Build command: *(leave empty)*
-4. Publish directory: `website` (or `.` relative to the base directory)
+- **push to `main`** touching `website/**` → deploys
+- **a GitHub release is published** → deploys
 
-`netlify.toml` in this folder already sets sane cache/security headers, so no
-further config is needed either way.
+That second trigger isn't decoration. The download buttons point at
+`/releases/latest/download/<file>`, which resolves against whichever release is newest —
+so publishing a release without redeploying leaves the live site linking to the previous
+version's filenames, which no longer exist. The two have to move together.
+
+Requires one repo secret: `CLOUDFLARE_API_TOKEN`, with the "Cloudflare Pages — Edit"
+permission. No account ID is needed — wrangler resolves it from the token when the token
+maps to a single account, same as heapcode's site deploy.
+
+Cache and security headers live in `_headers` — Cloudflare Pages' format. (This folder
+previously carried a `netlify.toml`, left over from before the move to Cloudflare. It was
+inert here, which is how the site ended up serving no `X-Frame-Options` at all.)
+
+To deploy by hand: `npx wrangler pages deploy website --project-name=<project>`.
 
 ## Local preview
 
