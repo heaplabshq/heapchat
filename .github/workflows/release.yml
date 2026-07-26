@@ -17,7 +17,12 @@ name: Release
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:   # lets you re-run a failed platform without re-tagging
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to the GitHub release. Leave OFF to build only — installers come back as run artifacts instead."
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # electron-builder uploads installers to the release
@@ -66,11 +71,31 @@ jobs:
       - name: Build UI bundle
         run: npm run build:ui
 
-      - name: Build and publish installers
+      # A tag push always publishes. A manual run only publishes if you tick the box:
+      # electron-builder resolves the target release from package.json's version, so an
+      # untick-by-default manual run can't accidentally push assets into an already-published
+      # release that happens to match the current version.
+      - name: Build installers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # There's no signing certificate in CI. Without this, electron-builder
           # searches an empty keychain and can fail the build outright rather than
           # falling back to producing an unsigned app. See the SIGNING note above.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npx electron-builder ${{ matrix.flag }} --publish always
+        shell: bash
+        run: npx electron-builder ${{ matrix.flag }} --publish ${{ (github.event_name == 'push' || inputs.publish) && 'always' || 'never' }}
+
+      # build-only run: hand the installers back so they can actually be downloaded and
+      # opened. if-no-files-found: error turns "built nothing" into a failure rather than
+      # a green run with an empty artifact.
+      - name: Upload installers
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ runner.os }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+          if-no-files-found: error
+          retention-days: 7
