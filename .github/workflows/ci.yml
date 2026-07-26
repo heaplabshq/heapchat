@@ -1,0 +1,67 @@
+name: CI
+
+# Fast checks on every PR. Deliberately does NOT build the Electron installers —
+# those take minutes per platform and tell a PR almost nothing. See release.yml,
+# which builds them on a version tag instead.
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+# a newer push to the same branch/PR makes the in-flight run irrelevant
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: build + UI smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Parses every server-side module, so an unimported name or a stray syntax
+      # error fails here instead of at request time in front of a user. This is
+      # exactly how the server went down once: PATCH /api/memory/:id referenced a
+      # name that was never imported, and nothing caught it until the route ran.
+      - name: Syntax-check server modules
+        run: git ls-files 'src/**/*.js' 'electron/**/*.js' server.js | xargs -r -n1 node --check
+
+      - name: Build UI bundle
+        run: npm run build:ui
+
+      # Chrome ships preinstalled on the runner image. The wrapper adds
+      # --no-sandbox, which CI needs and scripts/ui-smoke.mjs doesn't pass itself.
+      - name: Prepare Chrome wrapper
+        run: |
+          test -x /usr/bin/google-chrome || { echo "google-chrome is missing from the runner image"; exit 1; }
+          printf '#!/bin/sh\nexec /usr/bin/google-chrome --no-sandbox "$@"\n' > "$RUNNER_TEMP/chrome"
+          chmod +x "$RUNNER_TEMP/chrome"
+
+      # Boots the server on a throwaway data dir and drives headless Chrome over
+      # CDP, failing any view with a console error or an empty #root. Needs no
+      # Ollama — every view renders (and passes) with the model server unreachable.
+      - name: UI smoke test
+        env:
+          CHROME: ${{ runner.temp }}/chrome
+        run: npm run smoke:ui -- --shots "$RUNNER_TEMP/shots"
+
+      # the smoke run screenshots every view; on a failure they're usually quicker
+      # to read than the log
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-smoke-screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore
+          retention-days: 14
