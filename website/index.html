@@ -23,7 +23,7 @@
      so every visitor in that window, and Cloudflare's own edge cache, pinned that copy for a
      YEAR. A changed URL is the only thing that escapes an already-stored immutable entry.
      Bump v when editing style.css or script.js. -->
-<link rel="stylesheet" href="assets/style.css?v=2" />
+<link rel="stylesheet" href="assets/style.css?v=3" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,600&display=swap" rel="stylesheet" />
@@ -491,20 +491,38 @@
           <span class="eyebrow"><svg aria-hidden="true"><use href="#i-layers"/></svg> Desktop app</span>
           <h2 style="margin-top:16px">A native app, not just a browser tab</h2>
           <p class="lede" style="margin-top:12px;font-size:15.5px">Heap Chat ships as a real Electron app for macOS and Windows — with a menu-bar Quick Ask popover for a fast, global on-ramp into your knowledge base, alongside the full self-hosted web server for LAN/phone access.</p>
-          <div class="platforms">
-            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-apple"/></svg> macOS</span>
-            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows</span>
-            <span class="plat-pill"><svg aria-hidden="true"><use href="#i-globe"/></svg> Self-hosted web / PWA</span>
-          </div>
-          <!-- Version-less filenames on purpose: /releases/latest/download/<name> resolves only if
-               that exact name exists in the newest release, so a versioned filename here silently
+          <!-- One card per actual download, equal weight. The platform pills that used to sit here
+               are gone on purpose: they named macOS and Windows, and then the buttons named them
+               again, so every platform appeared twice and the buttons read as a second, different
+               list. The old buttons also had mismatched hierarchy — one primary "Download for macOS
+               (Apple Silicon)", one bare "Intel" (Intel Mac? Intel Windows?), and a Windows button
+               that wrapped onto its own line looking like an afterthought rather than a peer.
+
+               Version-less filenames are deliberate: /releases/latest/download/<name> resolves only
+               if that exact name exists in the newest release, so a versioned filename here silently
                404s the moment a new version ships. package.json's build.artifactName keeps them stable. -->
-          <div class="hero-actions" style="margin-top:18px">
-            <a class="btn primary" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-mac-arm64.dmg"><svg aria-hidden="true"><use href="#i-download"/></svg> Download for macOS (Apple Silicon)</a>
-            <a class="btn" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-mac-x64.dmg"><svg aria-hidden="true"><use href="#i-download"/></svg> Intel</a>
-            <a class="btn" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-win-x64.exe"><svg aria-hidden="true"><use href="#i-windows"/></svg> Windows</a>
+          <div class="dl-grid">
+            <a class="dl-card" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-mac-arm64.dmg">
+              <svg class="dl-plat" aria-hidden="true"><use href="#i-apple"/></svg>
+              <span class="dl-name">macOS</span>
+              <span class="dl-arch">Apple Silicon</span>
+              <span class="dl-file"><svg aria-hidden="true"><use href="#i-download"/></svg> .dmg</span>
+            </a>
+            <a class="dl-card" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-mac-x64.dmg">
+              <svg class="dl-plat" aria-hidden="true"><use href="#i-apple"/></svg>
+              <span class="dl-name">macOS</span>
+              <span class="dl-arch">Intel</span>
+              <span class="dl-file"><svg aria-hidden="true"><use href="#i-download"/></svg> .dmg</span>
+            </a>
+            <a class="dl-card" href="https://github.com/heaplabshq/heapchat/releases/latest/download/Heap-Chat-win-x64.exe">
+              <svg class="dl-plat" aria-hidden="true"><use href="#i-windows"/></svg>
+              <span class="dl-name">Windows</span>
+              <span class="dl-arch">64-bit</span>
+              <span class="dl-file"><svg aria-hidden="true"><use href="#i-download"/></svg> .exe</span>
+            </a>
           </div>
-          <p style="margin-top:12px;font-size:13px;color:var(--ink-3)">Unsigned builds (no code-signing certificate yet) — macOS needs right-click → Open → Open on first launch to get past Gatekeeper, and Windows shows a SmartScreen prompt (More info → Run anyway). <a href="https://github.com/heaplabshq/heapchat/releases" style="color:var(--accent)">All releases</a></p>
+          <p class="dl-note">Apple Silicon is any Mac from 2020 on (M1 or later); choose Intel for older models. Builds are unsigned for now — macOS needs right-click → Open → Open on first launch, and Windows shows a SmartScreen prompt (More info → Run anyway).</p>
+          <p class="dl-note"><svg class="dl-note-icon" aria-hidden="true"><use href="#i-globe"/></svg> Prefer no install? Run the self-hosted web server instead and reach it from any browser, phone included. <a href="https://github.com/heaplabshq/heapchat/releases">All releases</a></p>
         </div>
         <div class="quick-mock">
           <div class="quick-mock-top">
@@ -582,6 +600,6 @@ npm run desktop<span class="c"> # native macOS/Windows app</span></div>
   </div>
 </footer>
 
-<script src="assets/script.js?v=2"></script>   <!-- bump v on edit — see the note by style.css -->
+<script src="assets/script.js?v=3"></script>   <!-- bump v on edit — see the note by style.css -->
 </body>
 </html>
