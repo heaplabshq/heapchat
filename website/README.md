@@ -11,12 +11,19 @@ Live at [chat.heaplabs.dev](https://chat.heaplabs.dev) on **Cloudflare Pages**, 
 automatically by `.github/workflows/deploy-site.yml`. Nothing here needs a manual upload:
 
 - **push to `main`** touching `website/**` → deploys
-- **a GitHub release is published** → deploys
+- **a release is published by a person** → deploys
 
-That second trigger isn't decoration. The download buttons point at
-`/releases/latest/download/<file>`, which resolves against whichever release is newest —
-so publishing a release without redeploying leaves the live site linking to the previous
-version's filenames, which no longer exist. The two have to move together.
+The second trigger comes with a real caveat: it does **not** fire for releases cut by
+`release.yml`. electron-builder publishes with `GITHUB_TOKEN`, GitHub attributes the release to
+`github-actions[bot]`, and events attributed to `GITHUB_TOKEN` don't start workflow runs. It
+didn't fire for v1.1.0. Making it fire would mean publishing with a PAT.
+
+In practice that's fine, because the site no longer depends on release timing: `artifactName` in
+`package.json` produces version-less filenames (`Heap-Chat-mac-arm64.dmg`), so
+`/releases/latest/download/<name>` keeps resolving across releases without any site change. The
+one time it mattered was the v1.0.0 → v1.1.0 rename, when the old links pointed at filenames the
+new release didn't contain. If you ever reintroduce versioned filenames, that coupling comes back
+and this trigger won't save you.
 
 Requires two repo secrets: `CLOUDFLARE_API_TOKEN` (with the "Cloudflare Pages — Edit"
 permission) and `CLOUDFLARE_ACCOUNT_ID`. The account ID is given explicitly because
