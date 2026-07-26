@@ -59,7 +59,7 @@ const providerLLM = require("./src/llm/providers");
 const { mcpEnabled, mcpPublic, forgetSession, dropMcpClient, mcpListTools, mcpCallTool } = require("./src/mcp/client");
 const { addMemory, memPublic, sysInfoBlock, memoryBlock, scheduleEpisode, scheduleTitle, cancelUserTimers, ensureMemoryReady, MEM_TYPES, MEM_ALWAYS } = require("./src/llm/memory");
 const { addSkill, updateSkill, removeSkill, skillsBlock, skillPublic } = require("./src/llm/skills");
-const { rebuildProfile, profileBlock, scheduleProfileRebuild } = require("./src/llm/profile");
+const { rebuildProfile, profileBlock, scheduleProfileRebuild, currentProfile } = require("./src/llm/profile");
 const { startScheduler, runJob, deliver, normalizeJob, jobPublic, CADENCES } = require("./src/agent/scheduler");
 const { runExtraction, contentBasis } = require("./src/rag/extract-batch");
 const { findFileOnDisk, VERIFY_SYS, TOOL_REGISTRY, RETRIEVAL_TOOLS, ROSTER_DEFAULTS, agentToolDefs, agentToolMechanics, agentSys, execTool, makeThinkSplitter, deepResearchPipeline, rosterFor, multiAgentPipeline, chatImageRefs, resolveImageRef, materializeChatImage } = require("./src/agent/core");
@@ -1489,7 +1489,13 @@ app.delete("/api/skills/:id", (req, res) => {
 });
 
 /* ---------------- user profile: the synthesized "what Heap Chat knows about you" ---------------- */
-app.get("/api/profile", (req, res) => res.json({ profile: storesFor(req.user).profile || null }));
+// A stored-but-retired profile (built under older rules — see PROFILE_VERSION) is no longer injected
+// anywhere, so don't present it as live. `stale` lets the UI say why the box is empty and offer a rebuild.
+app.get("/api/profile", (req, res) => {
+  const stored = storesFor(req.user).profile;
+  const profile = currentProfile(req.user);
+  res.json({ profile, stale: !profile && !!(stored && stored.summary) });
+});
 app.post("/api/profile/rebuild", async (req, res) => {
   try {
     const profile = await rebuildProfile(req.user, { force: true });   // user asked → build from whatever exists
@@ -2018,7 +2024,9 @@ app.post("/api/agent", async (req, res) => {
   ctx.kbDir = projectId && findProject(req.user, projectId) ? projectKbDirFor(req.user, projectId) : kbDirFor(req.user);
   ctx.model = chosen;
   ctx.embedModel = embedModel || OLLAMA_EMBED_MODEL;
-  ctx.rerankModel = rerankModel || OLLAMA_RERANK_MODEL;
+  // "" is a REAL choice here (the Settings picker's "Off — embedding similarity only"), so an
+  // explicit empty string must not fall through to the server default — only an absent field does.
+  ctx.rerankModel = rerankModel != null ? rerankModel : OLLAMA_RERANK_MODEL;
   ctx.sessionId = String(req.body.sessionId || "") || null;
   const lastUserMsg = (([...messages].reverse().find(m => m.role === "user")) || {}).content || "";
   ctx.chartHint = wantsVisual(lastUserMsg);
@@ -2439,7 +2447,7 @@ app.post("/api/chat", async (req, res) => {
     useFiles = true,    // per-chat: pull context from the user's docs/KB (RAG)
     useMemory = true,   // per-chat: apply long-term memory
   } = req.body || {};
-  const rerankOpt = { rerankModel: rerankModel || OLLAMA_RERANK_MODEL };
+  const rerankOpt = { rerankModel: rerankModel != null ? rerankModel : OLLAMA_RERANK_MODEL };   // "" = explicitly off, see /api/agent
 
   try {
     if (scope === "file" && filePath && !guardPath(req, res, filePath)) return;

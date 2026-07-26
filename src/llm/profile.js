@@ -27,6 +27,13 @@ const PROFILE_SYS =
   "Do NOT include or infer facts about who they are, what they work on, or anything else about their life — this profile is style/format guidance only, not a biography. " +
   "Write in the third person, present tense. Only state what the notes support — never invent details. No preamble, no bullet points, no headings — just the sentences.";
 
+// Bumped whenever what a profile is ALLOWED to contain changes. v1 profiles were synthesized from
+// facts and episodes too, so a stored one can still be a biography — exactly what this rewrite
+// removes. Nothing rebuilds a profile on its own until a preference/instruction changes, so without
+// this check an existing user would keep their v1 profile injected into every conversation forever
+// and the leak would only be fixed for new users. Stale-version profiles are treated as absent
+// (see currentProfile) rather than deleted, so a rebuild can still be offered in the UI.
+const PROFILE_VERSION = 2;
 const REBUILD_DEBOUNCE_MS = +process.env.PROFILE_DEBOUNCE_MS || 8000;
 const REBUILD_MIN_SOURCES = 2;   // not worth synthesizing a profile from a single note
 const profileTimers = new Map();   // userId -> timeout
@@ -66,7 +73,7 @@ async function rebuildProfile(user, { force = false } = {}) {
   try { summary = (await completeText(OLLAMA_MODEL, PROFILE_SYS, input, 220, 0.2) || "").trim(); } catch { return st.profile || null; }
   summary = summary.replace(/^["'`]+|["'`]+$/g, "").trim();
   if (!summary) return st.profile || null;
-  st.profile = { summary, traits: {}, updatedAt: Date.now(), sourceCount: src.count };
+  st.profile = { summary, traits: {}, updatedAt: Date.now(), sourceCount: src.count, version: PROFILE_VERSION };
   st.save("profile.json");
   console.log(`[profile] rebuilt for ${user.id} from ${src.count} note(s)`);
   return st.profile;
@@ -81,12 +88,22 @@ function scheduleProfileRebuild(user, delay = REBUILD_DEBOUNCE_MS) {
   }, delay));
 }
 
-// the injected block — a short stable prefix at the top of the agent system prompt
-function profileBlock(user) {
+// The stored profile IF it's still usable — null for one written under an older set of rules (see
+// PROFILE_VERSION). A user-edited profile is exempt: they wrote those words themselves and own the
+// content, so we don't silently retire it out from under them.
+function currentProfile(user) {
   const st = user ? storesFor(user) : null;
   const p = st && st.profile;
-  if (!p || !p.summary) return "";
+  if (!p || !p.summary) return null;
+  if (p.version !== PROFILE_VERSION && !p.edited) return null;
+  return p;
+}
+
+// the injected block — a short stable prefix at the top of the agent system prompt
+function profileBlock(user) {
+  const p = currentProfile(user);
+  if (!p) return "";
   return "ABOUT THE USER (your evolving model of them — apply it, and keep it in mind without mentioning it unless asked):\n" + p.summary + "\n\n";
 }
 
-module.exports = { rebuildProfile, scheduleProfileRebuild, profileBlock, profileSources };
+module.exports = { rebuildProfile, scheduleProfileRebuild, profileBlock, profileSources, currentProfile, PROFILE_VERSION };

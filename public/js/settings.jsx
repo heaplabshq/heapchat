@@ -935,7 +935,7 @@ function SettingsPage({ settings, set, onSave, onReset, online, models, account,
             <span className="field-label">Rerank model <span className="ink-3">(optional)</span></span>
             <ModelSelect value={settings.rerankModel} models={models} providers={providers} allowDefault defaultLabel="Off — embedding similarity only"
               onChange={m => set({ rerankModel: m })} />
-            <span className="field-hint">A cross-encoder that re-scores the top search matches for precision, on top of embedding similarity. Best-effort: if the model errors or isn't pulled, search silently falls back to embedding-only ranking.</span>
+            <span className="field-hint">A cross-encoder that re-scores the top search matches for precision, on top of embedding similarity. Off by default — it costs an extra model call per candidate on every search. <span className="mono">qllama/bge-reranker-v2-m3</span> works well. Best-effort: if the model errors or isn't pulled, search silently falls back to embedding-only ranking.</span>
           </div>
         </div>
 

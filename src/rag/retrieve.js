@@ -3,8 +3,8 @@
    with a hybrid keyword bonus (distinctive numbers/long tokens add to the cosine
    score, never discount it). Reads indexes built by src/rag/index.js.
    ============================================================ */
-const { loadIndex, embed } = require("./index");
-const { OLLAMA_EMBED_MODEL, OLLAMA_KEEP_ALIVE } = require("../config");
+const { loadIndex, embed, LEGACY_EMBED_MODEL } = require("./index");
+const { OLLAMA_KEEP_ALIVE } = require("../config");
 const ollamaConn = require("../llm/ollama-conn");
 
 function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
@@ -56,8 +56,10 @@ async function retrieve(folderPath, query, k = 8, opts = {}) {
   if (!pool.length) return { hits: [], indexed: true };
   // embed the query with whatever model actually built this index (not necessarily the caller's
   // current setting) — comparing vectors from two different embedding models is silently wrong,
-  // not just stale, so the index's own record of its embedding model always wins.
-  const [qv] = await embed([query], idx.embedModel || OLLAMA_EMBED_MODEL);
+  // not just stale, so the index's own record of its embedding model always wins. An index with no
+  // record predates the field and was built with the then-hardcoded model, NOT with whatever the
+  // setting happens to say today — see LEGACY_EMBED_MODEL in ./index.
+  const [qv] = await embed([query], idx.embedModel || LEGACY_EMBED_MODEL);
   const terms = kwTerms(query);
   let scored = pool.map(c => ({ ...c, score: Math.min(1, cosine(qv, c.vec) + 0.2 * kwScore(terms, (c.name + " " + c.text).toLowerCase())) }))
     .sort((a, b) => b.score - a.score).slice(0, 60);

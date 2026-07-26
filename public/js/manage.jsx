@@ -37,7 +37,10 @@ function ManagePage({ onOpenFolder }) {
       fetch("/api/skills").then(r => r.json()).catch(() => ({ skills: [] })),
       fetch("/api/profile").then(r => r.json()).catch(() => ({ profile: null })),
       fetch("/api/user-settings").then(r => r.json()).catch(() => ({ settings: {} })),
-    ]).then(([a, b, c, d, e, f]) => { setIndexes(a.indexes || []); setImages(b.images || []); setMemory(c.memory || []); setSkills(d.skills || []); setProfile(e.profile || null); setReflection(!!(f.settings && f.settings.reflection)); setLoading(false); });
+    ]).then(([a, b, c, d, e, f]) => { setIndexes(a.indexes || []); setImages(b.images || []); setMemory(c.memory || []); setSkills(d.skills || []); setProfile(e.profile || null); setReflection(!!(f.settings && f.settings.reflection)); setLoading(false);
+      // a profile built under older rules is retired, not shown — say so rather than leaving a blank box
+      if (e.stale) setProfileMsg("Your earlier profile also summarized facts about you, which are now recalled only when a question is actually about them. It's been retired — rebuild to get a fresh one from your preferences and instructions.");
+    });
   }
   React.useEffect(() => { load(); }, []);
 

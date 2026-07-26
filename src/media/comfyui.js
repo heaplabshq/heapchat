@@ -49,25 +49,35 @@ async function queuePrompt(base, graph, clientId, timeoutMs) {
   return j.prompt_id;
 }
 
-// poll /history/{id} until the job's outputs show up, erroring out on a reported failure or timeout
+// poll /history/{id} until the job's outputs show up, erroring out on a reported failure or timeout.
+// A failed poll is NOT fatal: the job itself is running server-side and unaffected, and on the Flux
+// tier we poll for minutes, so one dropped connection or slow response would otherwise throw away a
+// render that's still in progress. Keep retrying until the deadline and report the last error there.
 async function pollForResult(base, promptId, { timeoutMs = 180000, intervalMs = 1000 } = {}) {
   const deadline = Date.now() + timeoutMs;
+  let lastErr = null;
   while (Date.now() < deadline) {
-    let r;
-    try { r = await fetch(`${base}/history/${promptId}`, { signal: AbortSignal.timeout(10000) }); } catch (e) { fail("polling", e); }
-    if (r.ok) {
-      const data = await r.json();
-      const entry = data[promptId];
+    let r = null;
+    try { r = await fetch(`${base}/history/${promptId}`, { signal: AbortSignal.timeout(10000) }); }
+    catch (e) { lastErr = e && e.message ? e.message : String(e); }
+    if (r && r.ok) {
+      let data = null;
+      try { data = await r.json(); } catch (e) { lastErr = `unreadable /history response: ${e.message}`; }
+      const entry = data && data[promptId];
       if (entry) {
+        // a run ComfyUI itself reports as failed IS fatal — retrying can't change the outcome
         if (entry.status && entry.status.status_str === "error") {
           throw new Error(`ComfyUI run failed: ${JSON.stringify(entry.status.messages || entry.status).slice(0, 400)}`);
         }
         if (entry.outputs) return entry.outputs;
       }
+    } else if (r) {
+      lastErr = `HTTP ${r.status}`;
     }
     await new Promise(res => setTimeout(res, intervalMs));
   }
-  throw new Error(`Timed out after ${Math.round(timeoutMs / 1000)}s waiting for ComfyUI to finish.`);
+  throw new Error(`Timed out after ${Math.round(timeoutMs / 1000)}s waiting for ComfyUI to finish.`
+    + (lastErr ? ` Last polling error: ${lastErr}.` : ""));
 }
 
 // pull the first image out of any node's outputs (we only ever have one SaveImage node)

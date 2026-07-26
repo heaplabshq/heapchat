@@ -17,7 +17,7 @@ const OLLAMA_VISION_MODEL = process.env.OLLAMA_VISION_MODEL || OLLAMA_MODEL;
 const OLLAMA_AGENT_MODEL = process.env.OLLAMA_AGENT_MODEL || OLLAMA_MODEL;
 const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || "30m";   // keep models resident between requests — kills the cold-load stall
 const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text:latest";   // folder-level RAG ("Ask folder") — must stay consistent within an index; see src/rag/index.js
-const OLLAMA_RERANK_MODEL = process.env.OLLAMA_RERANK_MODEL || "qllama/bge-reranker-v2-m3:latest";   // optional cross-encoder second pass in src/rag/retrieve.js — best-effort, falls back to embedding-only ranking if unavailable
+const OLLAMA_RERANK_MODEL = process.env.OLLAMA_RERANK_MODEL || "";   // optional cross-encoder second pass in src/rag/retrieve.js. OFF unless explicitly configured: it costs one extra model call per candidate on every search, and a model nobody pulled would burn that on failures forever (best-effort ranking means the fallback is silent). Suggested value: qllama/bge-reranker-v2-m3:latest
 const COMFYUI_URL = (process.env.COMFYUI_URL || "http://localhost:8000").replace(/\/+$/, "");   // local ComfyUI server for generate_image/edit_image (default active image backend)
 
 // NVIDIA's OpenAI-compatible API (integrate.api.nvidia.com) — an optional second provider

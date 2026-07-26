@@ -18,6 +18,11 @@ const { canAccessPath } = require("../auth/access");
 const { extractText } = require("./extract");
 
 const EMBED_MODEL = OLLAMA_EMBED_MODEL;   // server default; callers can pass a different model per index (see indexFiles)
+// Indexes built before `embedModel` was recorded have no such field — they were ALL built with this
+// model, because it was hardcoded. Treating a missing field as "unknown, assume it matches" would
+// defeat the whole guard below: change the setting, reindex, and unchanged files silently keep their
+// old-space vectors while the index gets stamped with the new model. Assume the historical default.
+const LEGACY_EMBED_MODEL = "nomic-embed-text:latest";
 const INDEX_DIR = path.join(DATA_DIR, "index");
 const MAX_INDEX_FILES = 400;     // safety cap per folder tree
 const MAX_CHUNKS_PER_FILE = 60;
@@ -97,7 +102,7 @@ async function embed(inputs, model = EMBED_MODEL) {
 // not just stale, so a model change forces a full re-embed rather than an incremental one.
 async function indexFiles(key, filePaths, model = EMBED_MODEL) {
   let prev = loadIndex(key) || { folder: key, files: {} };
-  if (prev.embedModel && prev.embedModel !== model) prev = { folder: key, files: {} };
+  if ((prev.embedModel || LEGACY_EMBED_MODEL) !== model) prev = { folder: key, files: {} };
   const next = { folder: key, embedModel: model, updatedAt: Date.now(), files: {} };
   let embedded = 0, reused = 0, skipped = 0;
   for (const full of filePaths) {
@@ -147,7 +152,7 @@ function indexedFiles(key) {
 }
 
 module.exports = {
-  EMBED_MODEL, INDEX_DIR, MAX_INDEX_FILES, MAX_CHUNKS_PER_FILE, CHUNK_SIZE, CHUNK_OVERLAP, KB_THRESHOLD,
+  EMBED_MODEL, LEGACY_EMBED_MODEL, INDEX_DIR, MAX_INDEX_FILES, MAX_CHUNKS_PER_FILE, CHUNK_SIZE, CHUNK_OVERLAP, KB_THRESHOLD,
   indexKey, indexPath, indexCache, loadIndex, saveIndex, chunkText, walkFiles, embed,
   indexFiles, buildIndex, buildFileIndex, indexedFiles,
 };
