@@ -2,6 +2,66 @@
 (function () {
   "use strict";
 
+  /* ---- download telemetry ----------------------------------------------------------------
+     Reports a click on any release-download button into the shared heaplabs collector
+     (https://github.com/heaplabshq/heaplabs-telemetry — one Worker + D1 for every heaplabs app,
+     partitioned by an `app` field). "heapchat-site" has to be in that repo's KNOWN_APPS
+     allowlist or ingestion rejects this with 400 "unknown app".
+
+     Measures CLICKS, not completed downloads — the browser never tells the page whether the
+     transfer finished, so treat this as download intent. GitHub's own per-asset download_count
+     (gh api repos/heaplabshq/heapchat/releases/latest --jq '.assets[]|.name,.download_count') is
+     the ground truth for completed downloads, and counts people who never touched this site;
+     what this adds is which platform button gets pressed here, and site-vs-direct attribution.
+
+     Privacy: follows heapedit's more conservative choice over heapcode-vscode's — the id is
+     generated per page load and never persisted (no localStorage, no cookie), so no cross-visit
+     identifier exists anywhere. Sends only the asset filename, a coarse OS family parsed from a
+     UA string the page can already read, and a timestamp. No referrer, no IP handling, no
+     fingerprinting. Nothing here may ever carry anything user-identifying.
+     ------------------------------------------------------------------------------------------ */
+  var TELEMETRY_ENDPOINT = "https://heaplabs-telemetry.y5ghjsdc4n.workers.dev/v1/events";
+  var TELEMETRY_APP = "heapchat-site";
+
+  var anonId = (window.crypto && window.crypto.randomUUID)
+    ? window.crypto.randomUUID()
+    : Date.now() + "-" + Math.random().toString(36).slice(2);
+
+  // same coarseness as the other heaplabs clients — OS family only, nothing more specific
+  function detectOs() {
+    var ua = navigator.userAgent || "";
+    if (/Mac OS X/.test(ua)) return "darwin";
+    if (/Windows/.test(ua)) return "windows";
+    if (/Linux|Android/.test(ua)) return "linux";
+    if (/iPhone|iPad|iPod/.test(ua)) return "ios";
+    return undefined;
+  }
+
+  // Delegated + capture so it still fires when the click lands on the <svg> icon inside the <a>,
+  // and matched on the href rather than a class list so any download button added later is
+  // covered without touching this.
+  document.addEventListener("click", function (e) {
+    var link = e.target && e.target.closest && e.target.closest('a[href*="/releases/latest/download/"]');
+    if (!link) return;
+    var href = link.getAttribute("href") || "";
+    var asset = href.split("/").pop() || "unknown";
+    try {
+      // keepalive matters here: this click navigates the tab to GitHub immediately, and without
+      // it the browser cancels the in-flight POST before it lands.
+      fetch(TELEMETRY_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({
+          app: TELEMETRY_APP,
+          anonId: anonId,
+          os: detectOs(),
+          events: [{ name: "site.download.click", ts: Date.now(), meta: { asset: asset } }]
+        })
+      }).catch(function () { /* telemetry must never interfere with the download */ });
+    } catch (_) { /* same */ }
+  }, true);
+
   // mobile nav toggle
   var burger = document.getElementById("nav-burger");
   var mobileMenu = document.getElementById("mobile-menu");
