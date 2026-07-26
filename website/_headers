@@ -8,6 +8,11 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
-# Fingerprinted, never-mutated files — safe to cache for a year.
+# Deliberately NOT immutable/max-age=1y. These filenames carry no content hash —
+# assets/script.js and assets/style.css keep their names across edits — so a year-long
+# immutable cache would pin returning visitors to whatever version they first loaded,
+# with no way to push a fix. (netlify.toml declared exactly that rule, but it was inert
+# on Cloudflare, so nothing was broken until these headers started applying for real.)
+# An hour with revalidation still spares repeat visitors the ~10MB hero video re-fetch.
 /assets/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: public, max-age=3600, must-revalidate
