@@ -17,6 +17,8 @@ function storedImageText(filePath, mtimeMs) {
   return null;
 }
 // run the vision model to describe an image; combine with user context; store + return
+// instructions: custom guidance for what to cover (e.g. "focus on the text, ignore watermark") — the
+// resulting description REPLACES and is cached over the general one (used by the image-library "AI search" panel).
 async function describeImage(filePath, context = "", instructions = "") {
   const st = await fsp.stat(filePath);
   const b64 = (await fsp.readFile(filePath)).toString("base64");
@@ -47,6 +49,22 @@ async function describeImage(filePath, context = "", instructions = "") {
   persistImageMeta();
   return imageMeta[filePath];
 }
+// answer a specific one-off question about an image (e.g. "how does the right apple look") without
+// touching the cached general description/search-index text — used by the chat agent's image_tool.
+async function answerAboutImage(filePath, question) {
+  const b64 = (await fsp.readFile(filePath)).toString("base64");
+  const r = await fetch(`${ollamaConn.baseUrl()}/api/chat`, {
+    method: "POST", headers: ollamaConn.headers(),
+    body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE,
+      model: OLLAMA_VISION_MODEL, stream: false, think: false,
+      messages: [{ role: "user", content: `Look at the image and answer this, focusing only on what's asked (don't describe the whole image): ${question}`, images: [b64] }],
+      options: { temperature: 0.2 },
+    }),
+  });
+  if (!r.ok) throw new Error(`vision ${r.status}: ${await r.text().catch(() => "")}`);
+  const j = await r.json();
+  return { description: ((j.message && j.message.content) || "").trim() };
+}
 // core: send a base64 image to the vision model. json=true → parse a JSON object; else return text. (OCR — fully local)
 async function visionReadB64(b64, prompt, json) {
   try {
@@ -76,4 +94,4 @@ async function visionTranscribe(filePath) {
   } catch { return ""; }
 }
 
-module.exports = { storedImageText, describeImage, visionReadB64, visionExtract, visionTranscribe };
+module.exports = { storedImageText, describeImage, answerAboutImage, visionReadB64, visionExtract, visionTranscribe };

@@ -62,7 +62,45 @@ function InstagramCard({ spec }) {
   );
 }
 
-function RenderBlock({ spec, onEditImage }) {
+// fullscreen zoom viewer for chat images — generated/library images (local /api/file?path=…) and
+// external ones (web-search results, read_url) alike; the <img> just loads whatever src it's given,
+// no download/save step needed. Click-to-zoom + arrow-key nav across the group that was opened from.
+// Named distinctly from focus.jsx's ZoomLightbox / people.jsx's Lightbox (all .jsx share one global
+// scope — see the comment on ZoomLightbox in focus.jsx).
+function ChatLightbox({ items, index, onIndex, onClose }) {
+  const [zoom, setZoom] = useState(false);
+  React.useEffect(() => {
+    const h = e => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight" && items.length > 1) { setZoom(false); onIndex((index + 1) % items.length); }
+      else if (e.key === "ArrowLeft" && items.length > 1) { setZoom(false); onIndex((index - 1 + items.length) % items.length); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [index, items.length]);
+  const it = items[index];
+  if (!it) return null;
+  const src = it.image || it.url;
+  const original = it.url && it.url !== src ? it.url : null;   // web-search "source page" link, when different from the image itself
+  return (
+    <div className="lightbox" onClick={onClose}>
+      <button className="lb-close" title="Close (Esc)" onClick={onClose}><Icon name="x" size={20} /></button>
+      {items.length > 1 && <button className="lb-nav lb-prev" title="Previous (←)" onClick={e => { e.stopPropagation(); setZoom(false); onIndex((index - 1 + items.length) % items.length); }}><Icon name="chevL" size={26} /></button>}
+      <img className={"lb-img" + (zoom ? " zoom" : "")} src={src} alt={it.title || ""}
+        onClick={e => { e.stopPropagation(); setZoom(z => !z); }} title={zoom ? "Click to fit" : "Click to zoom"} />
+      {items.length > 1 && <button className="lb-nav lb-next" title="Next (→)" onClick={e => { e.stopPropagation(); setZoom(false); onIndex((index + 1) % items.length); }}><Icon name="chevR" size={26} /></button>}
+      {(it.title || it.source || original) && (
+        <div className="lb-caption" onClick={e => e.stopPropagation()}>
+          {[it.title, it.source].filter(Boolean).join(" · ")}
+          {items.length > 1 ? ` · ${index + 1} / ${items.length}` : ""}
+          {original && <a href={original} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 10, color: "var(--accent)" }}>Open source ↗</a>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RenderBlock({ spec, onEditImage, onZoomImage }) {
   if (!spec) return null;
   if (spec.type === "images") {
     return (
@@ -71,9 +109,11 @@ function RenderBlock({ spec, onEditImage }) {
         <div className="rb-img-grid">
           {(spec.items || []).map((it, i) => (
             <div key={i} className="rb-img-wrap" style={{ position: "relative" }}>
-              <a className="rb-img" href={it.url || it.image} target="_blank" rel="noopener noreferrer" title={(it.title || "") + (it.source ? " · " + it.source : "")}>
+              <div className="rb-img" role="button" tabIndex={0} title={(it.title || "") + (it.source ? " · " + it.source : "")}
+                onClick={() => onZoomImage ? onZoomImage(spec.items, i) : window.open(it.url || it.image, "_blank", "noopener")}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onZoomImage ? onZoomImage(spec.items, i) : window.open(it.url || it.image, "_blank", "noopener"); } }}>
                 <img src={it.thumb || it.image} alt={it.title || ""} loading="lazy" />
-              </a>
+              </div>
               {onEditImage && (
                 <button className="rb-img-edit" title="Edit with AI" onClick={e => { e.preventDefault(); e.stopPropagation(); onEditImage(it); }}>
                   <Icon name="sparkles" size={13} /> Edit
@@ -149,4 +189,4 @@ function RenderBlock({ spec, onEditImage }) {
   return null;
 }
 
-export { RenderBlock };
+export { RenderBlock, ChatLightbox };

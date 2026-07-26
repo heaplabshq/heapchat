@@ -1,11 +1,19 @@
 /* ============================================================
    Long-term memory — typed, per user (see AGENT-MEMORY.md).
-   preference / instruction → always injected (tiny, keyed class)
-   fact / episode           → retrieved top-K by similarity to the question
+   preference / instruction, scope "global"  → always injected (tiny, keyed class)
+   preference / instruction, scope "topical" → retrieved top-K by similarity, same as facts
+   fact / episode                            → retrieved top-K by similarity to the question
    Entries carry an embedding (computed once at write), provenance, and usage
    stats; near-duplicates of the same type are superseded, and the cap evicts by
    staleness/uselessness instead of age. Also hosts episodic-memory distillation
    (finished sessions → "past task" entries) and auto chat titles.
+
+   `scope` exists because "always injected" is too blunt for ALL preferences/instructions: a
+   universal rule ("be concise") should apply to every response, but a topical one ("when
+   discussing my health, add a disclaimer") should only surface when that topic actually comes
+   up — confirmed live: an unscoped topical instruction leaked a health disclaimer into a haiku,
+   a pasta recipe, and a gift suggestion for an unrelated coworker. Classified once at save time
+   (LLM call, same pattern as the supersede decision below) and backfilled lazily for old entries.
    ============================================================ */
 const { OLLAMA_MODEL, OLLAMA_AGENT_MODEL } = require("../config");
 const { storesFor } = require("../state/user-stores");
@@ -18,15 +26,26 @@ const { scheduleProfileRebuild } = require("./profile");
 const MAX_MEMORIES = 200;
 const MEM_TYPES = new Set(["preference", "fact", "instruction", "episode"]);
 const MEM_ALWAYS = new Set(["preference", "instruction"]);
-const MEM_TOPK = 4, MEM_FLOOR = 0.45, MEM_SUPERSEDE = 0.8, MEM_MAYBE = 0.55, MEM_BUDGET = 2400;   // budget ≈ 600 tokens
+// MEM_FLOOR measured empirically: a genuinely relevant fact-vs-query pair scored ~0.68-0.69 cosine
+// (nomic-embed-text), while shallow thematic overlap (a marathon-training fact vs. "write a haiku
+// about mountains") scored up to 0.53 — high enough to leak past the old 0.45 floor and visibly
+// bleed into an unrelated answer. 0.58 sits in the gap between those two bands.
+const MEM_TOPK = 4, MEM_FLOOR = 0.58, MEM_SUPERSEDE = 0.8, MEM_MAYBE = 0.55, MEM_BUDGET = 2400;   // budget ≈ 600 tokens
 function guessMemType(t) {
   const s = String(t).toLowerCase();
   if (/\b(always|never|do not|don't|must|avoid|stop)\b/.test(s) && /\b(answer|reply|respond|use|show|format|ask|cite|delete|write|include)\b/.test(s)) return "instruction";
   if (/\b(prefer|prefers|likes?|loves?|favorite|favourite|style|format|tone|language|units?|concise|short|detailed|bullet)\b/.test(s)) return "preference";
   return "fact";
 }
+const SCOPE_SYS = 'You classify a saved preference/instruction for an AI assistant. Does it apply to EVERY response regardless of topic — a universal rule about tone, format, style, or general conduct, e.g. "be concise", "never use emoji", "always cite sources" — or is it SCOPED to a specific subject and only relevant when THAT subject comes up, e.g. "when discussing my health, add a disclaimer", "never suggest non-vegetarian recipes", "when writing code use Bash not Python"? Reply ONLY {"scope":"global"} or {"scope":"topical"}.';
+// classify once at save time; best-effort — on failure, default to "global" (today's behavior,
+// not a new leak) rather than "topical" (which would silently stop a real universal rule from applying).
+async function classifyMemScope(text) {
+  try { const j = await completeJSON(OLLAMA_MODEL, SCOPE_SYS, String(text), 20); return (j && j.scope === "topical") ? "topical" : "global"; }
+  catch { return "global"; }
+}
 const memPublic = m => { const { vec, ...rest } = m; return rest; };
-// migrate untyped legacy entries + backfill missing embeddings (lazy, batched, best-effort)
+// migrate untyped legacy entries + backfill missing embeddings/scope (lazy, batched, best-effort)
 async function ensureMemoryReady(user) {
   const st = storesFor(user);
   let changed = false;
@@ -37,6 +56,10 @@ async function ensureMemoryReady(user) {
   if (missing.length) {
     try { const vecs = await embed(missing.map(m => m.text)); missing.forEach((m, i) => { if (vecs[i]) m.vec = vecs[i]; }); changed = true; } catch {}
   }
+  // small batch per call (classification is one LLM call per item, unlike the single batched
+  // embed call above) — bounds how much latency a backlog of old entries adds to any one request
+  const missingScope = st.memory.filter(m => MEM_ALWAYS.has(m.type) && !m.scope).slice(0, 3);
+  for (const m of missingScope) { m.scope = await classifyMemScope(m.text); changed = true; }
   if (changed) st.save("memory.json");
 }
 async function addMemory(user, text, source = "manual", type = null, origin = null) {
@@ -48,10 +71,12 @@ async function addMemory(user, text, source = "manual", type = null, origin = nu
   const norm = s => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
   const nt = norm(t);
   let vec = null; try { [vec] = await embed([t]); } catch {}
+  // only preference/instruction need a scope — facts/episodes are already relevance-gated regardless
+  const scope = MEM_ALWAYS.has(type) ? await classifyMemScope(t) : null;
   // exact/substring duplicate → keep one, prefer the more detailed wording
   const dup = st.memory.find(m => { const nm = norm(m.text); return nm === nt || nm.includes(nt) || nt.includes(nm); });
   if (dup) {
-    if (nt.length > norm(dup.text).length) { dup.text = t; dup.updatedAt = now; if (vec) dup.vec = vec; st.save("memory.json"); }
+    if (nt.length > norm(dup.text).length) { dup.text = t; dup.updatedAt = now; if (vec) dup.vec = vec; if (scope) dup.scope = scope; st.save("memory.json"); }
     return memPublic(dup);
   }
   // supersede: an update/correction of an existing same-type entry replaces it instead of stacking a contradiction.
@@ -71,6 +96,7 @@ async function addMemory(user, text, source = "manual", type = null, origin = nu
     }
     if (replace) {
       best.text = t; best.vec = vec; best.updatedAt = now; best.source = source;
+      if (scope) best.scope = scope;
       if (origin) best.origin = origin;
       st.save("memory.json");
       if (MEM_ALWAYS.has(type)) scheduleProfileRebuild(user);   // a changed preference/instruction → refresh the profile
@@ -78,7 +104,7 @@ async function addMemory(user, text, source = "manual", type = null, origin = nu
     }
   }
   const m = { id: "m" + now + Math.random().toString(16).slice(2, 6), type, text: t, source, origin: origin || undefined,
-    createdAt: now, updatedAt: now, lastUsedAt: 0, useCount: 0, vec };
+    createdAt: now, updatedAt: now, lastUsedAt: 0, useCount: 0, vec, scope: scope || undefined };
   st.memory.unshift(m);
   if (st.memory.length > MAX_MEMORIES) {   // evict the stalest, least-used non-instruction entry
     const evictable = st.memory.filter(x => x.type !== "instruction");
@@ -100,13 +126,15 @@ function sysInfoBlock() {
   return `\n\nCURRENT DATE: ${stamp} (${tz}). Resolve relative dates like "today", "yesterday", or "last month" against this — never guess the date from your training data.`;
 }
 
-// the prompt block: always-on instructions/preferences + the few facts/episodes relevant to THIS question
+// the prompt block: always-on GLOBAL instructions/preferences + the few facts/episodes/TOPICAL
+// instructions-preferences relevant to THIS question. `scope` defaults to "global" when missing
+// (not yet backfilled) so nothing regresses mid-backfill — see ensureMemoryReady.
 async function memoryBlock(user, query = "", recall = null) {   // recall: pass [] to learn which entries were injected
   const st = user ? storesFor(user) : null;
   if (!st || !st.memory.length) return "";
   await ensureMemoryReady(user);
-  const always = st.memory.filter(m => MEM_ALWAYS.has(m.type));
-  const pool = st.memory.filter(m => !MEM_ALWAYS.has(m.type));
+  const always = st.memory.filter(m => MEM_ALWAYS.has(m.type) && m.scope !== "topical");
+  const pool = st.memory.filter(m => !MEM_ALWAYS.has(m.type) || m.scope === "topical");
   let picked = [];
   if (pool.length && String(query).trim()) {
     try {
@@ -286,7 +314,7 @@ async function generateTitle(user, fileId, sessionId) {
 }
 
 module.exports = {
-  guessMemType, memPublic, ensureMemoryReady, addMemory, sysInfoBlock, memoryBlock,
+  MEM_TYPES, MEM_ALWAYS, guessMemType, memPublic, ensureMemoryReady, addMemory, sysInfoBlock, memoryBlock,
   scheduleEpisode, distillEpisode, distillSkill, reflectOnSession, reflectionEnabled,
   scheduleTitle, generateTitle, cleanTitle, cancelUserTimers,
 };

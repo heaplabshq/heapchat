@@ -3,7 +3,9 @@
    with a hybrid keyword bonus (distinctive numbers/long tokens add to the cosine
    score, never discount it). Reads indexes built by src/rag/index.js.
    ============================================================ */
-const { loadIndex, embed } = require("./index");
+const { loadIndex, embed, LEGACY_EMBED_MODEL } = require("./index");
+const { OLLAMA_KEEP_ALIVE } = require("../config");
+const ollamaConn = require("../llm/ollama-conn");
 
 function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
 function norm(a) { return Math.sqrt(dot(a, a)) || 1; }
@@ -24,17 +26,50 @@ function kwScore(terms, lowText) {
   for (const t of terms) { max += t.weight; if (t.re.test(lowText)) hit += t.weight; }
   return max ? hit / max : 0;
 }
-async function retrieve(folderPath, query, k = 8) {
+// cross-encoder rerank via Ollama's /api/embed: for a BERT-style classification head (the
+// architecture reranker GGUFs on Ollama typically use) the returned "embedding" is really a
+// single relevance logit, not a vector — see qllama/bge-reranker-v2-m3's `cls.output` head
+// (shape [1]). Squash it through a sigmoid so it composes with the existing 0..1 score scale.
+async function rerankOne(model, query, text) {
+  const r = await fetch(`${ollamaConn.baseUrl()}/api/embed`, {
+    method: "POST", headers: ollamaConn.headers(),
+    body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, input: [`${query}\n${text}`] }),
+  });
+  if (!r.ok) throw new Error(`rerank ${r.status}: ${await r.text().catch(() => "")}`);
+  const j = await r.json();
+  const v = (j.embeddings || [])[0];
+  if (!v || !v.length) throw new Error("rerank: empty output");
+  return 1 / (1 + Math.exp(-v[0]));   // sigmoid
+}
+// best-effort: any failure (model not pulled, server error, unexpected output shape) leaves
+// `scored` untouched so retrieve() silently falls back to embedding-only ranking.
+async function rerank(model, query, candidates) {
+  const scores = await Promise.all(candidates.map(c => rerankOne(model, query, c.text)));
+  return candidates.map((c, i) => ({ ...c, score: scores[i] }));
+}
+async function retrieve(folderPath, query, k = 8, opts = {}) {
   const idx = loadIndex(folderPath);
   if (!idx) return { hits: [], indexed: false };
   const pool = [];
   for (const [p, f] of Object.entries(idx.files))
     for (const c of f.chunks) pool.push({ name: f.name, path: p, text: c.text, vec: c.vec });
   if (!pool.length) return { hits: [], indexed: true };
-  const [qv] = await embed([query]);
+  // embed the query with whatever model actually built this index (not necessarily the caller's
+  // current setting) — comparing vectors from two different embedding models is silently wrong,
+  // not just stale, so the index's own record of its embedding model always wins. An index with no
+  // record predates the field and was built with the then-hardcoded model, NOT with whatever the
+  // setting happens to say today — see LEGACY_EMBED_MODEL in ./index.
+  const [qv] = await embed([query], idx.embedModel || LEGACY_EMBED_MODEL);
   const terms = kwTerms(query);
-  const scored = pool.map(c => ({ ...c, score: Math.min(1, cosine(qv, c.vec) + 0.2 * kwScore(terms, (c.name + " " + c.text).toLowerCase())) }))
+  let scored = pool.map(c => ({ ...c, score: Math.min(1, cosine(qv, c.vec) + 0.2 * kwScore(terms, (c.name + " " + c.text).toLowerCase())) }))
     .sort((a, b) => b.score - a.score).slice(0, 60);
+  if (opts.rerankModel) {
+    try {
+      const RERANK_POOL = 20;
+      const reranked = await rerank(opts.rerankModel, query, scored.slice(0, RERANK_POOL));
+      scored = [...reranked, ...scored.slice(RERANK_POOL)].sort((a, b) => b.score - a.score);
+    } catch (e) { console.error("rerank failed, falling back to embedding-only ranking:", e.message); }
+  }
   // MMR for diversity, with a per-file cap so one large document can't hog the results
   const lambda = 0.7, selected = [], perFile = {}, PER_FILE_CAP = 2;
   while (selected.length < Math.min(k, scored.length)) {

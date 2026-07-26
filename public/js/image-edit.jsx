@@ -1,14 +1,18 @@
 import { Icon } from "./icons.jsx";
 /* ImageEditModal — "Edit with AI" dialog used from chat image results and the
    gallery full-screen viewer. POSTs the source image (a server `path` or a
-   `dataUrl`) + an edit instruction to /api/image/edit (Draw Things img2img),
+   `dataUrl`) + an edit instruction to /api/image/edit (img2img via ComfyUI or Draw Things),
    shows the result, and reports it back via onDone. Depends only on Icon so it
    can be imported by both focus.jsx (early) and chat.jsx without an app cycle. */
 const { useState } = React;
 
-// pull the Draw Things settings + chat model + generation defaults into the request body
+// pull the active image backend + chat model + generation defaults into the request body
 function dtBody(settings) {
   return {
+    imageBackend: settings.imageBackend || "comfyui",
+    comfyUrl: settings.comfyUrl || undefined,
+    comfyModel: settings.comfyModel || undefined,
+    quality: settings.imageQuality || "fast",
     drawThingsUrl: settings.drawThingsUrl || undefined,
     drawThingsModel: settings.drawThingsModel || undefined,
     drawThingsSecret: settings.drawThingsSecret || undefined,
@@ -18,6 +22,7 @@ function dtBody(settings) {
 }
 
 function ImageEditModal({ src, path, dataUrl, settings = {}, onClose, onDone }) {
+  const usingFlux = (settings.imageBackend || "comfyui") !== "drawthings" && settings.imageQuality === "best";
   const [prompt, setPrompt] = useState("");
   const [enhance, setEnhance] = useState(settings.imageEnhance !== false);
   const [strength, setStrength] = useState(settings.imageStrength ?? 0.7);
@@ -71,20 +76,26 @@ function ImageEditModal({ src, path, dataUrl, settings = {}, onClose, onDone }) 
                   value={prompt} onChange={e => setPrompt(e.target.value)} autoFocus disabled={busy}
                   onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }}
                   style={{ fontSize: 13.5, resize: "vertical", flex: 1, minHeight: 100 }} />
-                <label className="col" style={{ gap: 3 }}>
-                  <span className="t-xs ink-3">Strength — how much to change ({Math.round(strength * 100)}%)</span>
-                  <div className="row gap-2" style={{ alignItems: "center" }}>
-                    <span className="t-xs ink-4" style={{ flex: "none" }}>Keep original</span>
-                    <input type="range" min={0.05} max={1} step={0.01} value={strength} disabled={busy}
-                      onChange={e => setStrength(+e.target.value)} style={{ flex: 1 }} />
-                    <span className="t-xs ink-4" style={{ flex: "none" }}>Reimagine</span>
-                  </div>
-                </label>
+                {!usingFlux && (
+                  <label className="col" style={{ gap: 3 }}>
+                    <span className="t-xs ink-3">Strength — how much to change ({Math.round(strength * 100)}%)</span>
+                    <div className="row gap-2" style={{ alignItems: "center" }}>
+                      <span className="t-xs ink-4" style={{ flex: "none" }}>Keep original</span>
+                      <input type="range" min={0.05} max={1} step={0.01} value={strength} disabled={busy}
+                        onChange={e => setStrength(+e.target.value)} style={{ flex: 1 }} />
+                      <span className="t-xs ink-4" style={{ flex: "none" }}>Reimagine</span>
+                    </div>
+                  </label>
+                )}
                 <label className="row gap-1 t-xs" style={{ alignItems: "center", cursor: "pointer" }} onClick={() => !busy && setEnhance(v => !v)}>
                   <span className={"toggle sm" + (enhance ? " on" : "")} />
                   <span className="ink-3">Enhance my prompt automatically</span>
                 </label>
-                <div className="t-xs ink-4">Your image is loaded as the base and re-rendered with your change. Lower strength stays closer to the original.</div>
+                <div className="t-xs ink-4">
+                  {usingFlux
+                    ? "Flux (Best quality) precisely applies your change and leaves the rest of the image untouched — this can take a few minutes."
+                    : "Your image is loaded as the base and re-rendered with your change. Lower strength stays closer to the original."}
+                </div>
               </>
             ) : (
               <div className="col" style={{ gap: 8 }}>

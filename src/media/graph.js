@@ -35,7 +35,7 @@ const ENT_STOP = new Set(("the a an and or but if then else for to in on at of b
   "monday tuesday wednesday thursday friday saturday sunday " +
   "subject date from sent to cc re fwd hi hello dear thanks regards best please note also however therefore " +
   "yes no ok page chapter section figure table").split(/\s+/));
-const ORG_HINT = /\b(Inc|LLC|Ltd|Corp|Co|Company|University|College|School|Institute|Institute|Agency|Bank|Group|Foundation|Association|Committee|Ministry|Hospital|Limited|GmbH|PLC|Technologies|Systems|Labs|Studios|Partners)\b/;
+const ORG_HINT = /\b(Inc|LLC|Ltd|Corp|Co|Company|University|College|School|Institute|Institute|Agency|Bank|Group|Foundation|Association|Committee|Ministry|Hospital|Limited|GmbH|PLC|Technologies|Systems|Labs|Studios|Partners)\b/i;
 
 // pull capitalized proper-noun phrases + a few structured types from raw text — pure CPU, no model
 function extractEntities(text) {

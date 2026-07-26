@@ -2,11 +2,13 @@ import { Icon, thumbUrl } from "./icons.jsx";
 import { fmt } from "./markdown.jsx";
 // manage.jsx — index & knowledge-base management page
 
-// memory types grouped for display; preferences/instructions are always applied,
-// facts/past tasks (episodes) are recalled only when a question is relevant.
+// memory types grouped for display. preferences/instructions ALSO carry a scope: "global" (applied
+// to every chat) or "topical" (recalled only when a question is about that topic) — see the scope
+// selector rendered per-item below. facts/past tasks (episodes) have no scope; they're always
+// recalled only when relevant.
 const MEM_GROUPS = [
-  { type: "preference",  label: "Preferences",  desc: "How you like answers — applied to every chat" },
-  { type: "instruction", label: "Instructions", desc: "Standing orders — applied to every chat" },
+  { type: "preference",  label: "Preferences",  desc: "How you like answers — global ones apply every chat, topical ones only when relevant", scoped: true },
+  { type: "instruction", label: "Instructions", desc: "Standing orders — global ones apply every chat, topical ones only when relevant", scoped: true },
   { type: "fact",        label: "Facts",        desc: "What's true about you — recalled when relevant" },
   { type: "episode",     label: "Past tasks",   desc: "Lessons from finished sessions — recalled when relevant" },
 ];
@@ -35,7 +37,10 @@ function ManagePage({ onOpenFolder }) {
       fetch("/api/skills").then(r => r.json()).catch(() => ({ skills: [] })),
       fetch("/api/profile").then(r => r.json()).catch(() => ({ profile: null })),
       fetch("/api/user-settings").then(r => r.json()).catch(() => ({ settings: {} })),
-    ]).then(([a, b, c, d, e, f]) => { setIndexes(a.indexes || []); setImages(b.images || []); setMemory(c.memory || []); setSkills(d.skills || []); setProfile(e.profile || null); setReflection(!!(f.settings && f.settings.reflection)); setLoading(false); });
+    ]).then(([a, b, c, d, e, f]) => { setIndexes(a.indexes || []); setImages(b.images || []); setMemory(c.memory || []); setSkills(d.skills || []); setProfile(e.profile || null); setReflection(!!(f.settings && f.settings.reflection)); setLoading(false);
+      // a profile built under older rules is retired, not shown — say so rather than leaving a blank box
+      if (e.stale) setProfileMsg("Your earlier profile also summarized facts about you, which are now recalled only when a question is actually about them. It's been retired — rebuild to get a fresh one from your preferences and instructions.");
+    });
   }
   React.useEffect(() => { load(); }, []);
 
@@ -46,6 +51,12 @@ function ManagePage({ onOpenFolder }) {
   }
   async function retypeMem(m, type) {
     const r = await fetch("/api/memory/" + m.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type }) }).then(r => r.json()).catch(() => null);
+    if (r && r.id) setMemory(list => list.map(x => x.id === r.id ? r : x));
+  }
+  // override the classifier's global/topical call — e.g. it guessed "topical" but this really
+  // should apply to every chat, or vice versa
+  async function rescopeMem(m, scope) {
+    const r = await fetch("/api/memory/" + m.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope }) }).then(r => r.json()).catch(() => null);
     if (r && r.id) setMemory(list => list.map(x => x.id === r.id ? r : x));
   }
   async function delMem(id) {
@@ -64,7 +75,9 @@ function ManagePage({ onOpenFolder }) {
     const r = await fetch("/api/profile/rebuild", { method: "POST" }).then(r => r.json()).catch(() => null);
     if (r && r.profile) { setProfile(r.profile); }
     else if (r && r.empty) setProfileMsg(r.reason === "no-memories"
-      ? "Nothing to build from yet — add a preference or fact below (or tell Heap Chat “remember that…” in a chat), then rebuild."
+      ? "Nothing to build from yet — add a preference or instruction below (or tell Heap Chat “remember that…” in a chat), then rebuild."
+      : r.reason === "no-global-notes"
+      ? "This profile only summarizes preferences/instructions marked “global” — facts and “topical” notes are recalled separately, only when a question is actually about them. Mark one “global” below, or add a new one, then rebuild."
       : "Couldn’t synthesize a profile right now — make sure the local model is running, then try again.");
     setProfileBusy(false);
   }
@@ -201,13 +214,21 @@ function ManagePage({ onOpenFolder }) {
                           </span>
                         </div>
                         <select className="select none" style={{ width: 112, fontSize: 11.5, padding: "3px 6px" }} value={m.type || "fact"}
-                          title="preference/instruction: always applied · fact/past task: recalled when relevant"
+                          title="preference/instruction: gated by scope (see the dropdown next to it) · fact/past task: always recalled when relevant"
                           onChange={e => retypeMem(m, e.target.value)}>
                           <option value="preference">preference</option>
                           <option value="instruction">instruction</option>
                           <option value="fact">fact</option>
                           <option value="episode">past task</option>
                         </select>
+                        {g.scoped && (
+                          <select className="select none" style={{ width: 88, fontSize: 11.5, padding: "3px 6px" }} value={m.scope === "topical" ? "topical" : "global"}
+                            title="global: applied to every chat · topical: only recalled when a question is actually about this"
+                            onChange={e => rescopeMem(m, e.target.value)}>
+                            <option value="global">global</option>
+                            <option value="topical">topical</option>
+                          </select>
+                        )}
                         {m.source === "auto" && <span className="img-badge none" title="captured automatically by the agent">auto</span>}
                         {m.source === "reflection" && <span className="img-badge none" title="corrected by reflection after a session">revised</span>}
                         <button className="btn icon sm ghost none" title="Forget" onClick={() => delMem(m.id)} style={{ color: "var(--warn)" }}><Icon name="x" size={15} /></button>

@@ -9,6 +9,7 @@ import { Thumb } from "./gallery.jsx";
 import { ChatMessage } from "./chat-message.jsx";
 import { Composer } from "./composer.jsx";
 import { ImageEditModal } from "./image-edit.jsx";
+import { ChatLightbox } from "./renders.jsx";
 // chat.jsx — chat panel scoped to a single file OR a whole folder (RAG).
 // Multiple chat sessions per target, persisted server-side (data/chats.json).
 const { useState, useEffect, useRef } = React;
@@ -57,6 +58,7 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
   const [val, setVal] = useState("");
   const [busy, setBusy] = useState(false);
   const [imgEdit, setImgEdit] = useState(null);   // { src, path?, dataUrl? } open in the Edit-with-AI modal
+  const [chatZoom, setChatZoom] = useState(null);   // { items, index } open in the in-app image zoom viewer (renders + attached prompt images)
   const taRef = useRef(null);
   const abortRef = useRef(null);
   const targetIdRef = useRef(target.id);
@@ -313,13 +315,30 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
 
     // images visible in this conversation — so the agent can see/use/embed them (vision tools, note embeds)
     const isImgName = n => /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(n || "");
-    const convoImages = [
+    // browsers give every clipboard-pasted image the same generic name (usually "image.png"), so two
+    // separate pastes in one conversation collide — the agent can only refer to images by name, and a
+    // name lookup would silently resolve to the FIRST match (the old image). Disambiguate here: keep
+    // the first occurrence of a name as-is, suffix later duplicates " (2)", " (3)", ... so each image
+    // the agent is shown has a name that actually identifies it.
+    function dedupeImageNames(list) {
+      const seen = new Map();
+      return list.map(im => {
+        const n = im.name || "image.jpg";
+        const count = (seen.get(n) || 0) + 1;
+        seen.set(n, count);
+        if (count === 1) return im;
+        const ext = n.match(/\.[a-z0-9]+$/i);
+        const stem = ext ? n.slice(0, -ext[0].length) : n;
+        return { ...im, name: `${stem} (${count})${ext ? ext[0] : ""}` };
+      });
+    }
+    const convoImages = dedupeImageNames([
       ...base.filter(m => m.image).map(m => ({ name: m.imageName || "image.jpg", dataUrl: m.image })),
       ...base.flatMap(m => (m.images || []).map(im => ({ name: im.name || "image.jpg", dataUrl: im.url }))),
       ...base.flatMap(m => (m.attachFiles || []).filter(a => isImgName(a.name)).map(a => ({ name: a.name, path: a.path }))),
       ...atts.filter(a => isImgName(a.name)).map(a => ({ name: a.name, path: a.path })),
       ...imgs.map(im => ({ name: im.name || "image.jpg", dataUrl: im.url })),   // images attached on THIS turn
-    ];
+    ]);
 
     atBottomRef.current = true;   // a fresh send always jumps to the latest
     setMsgs([...base, { role: "user", text: userText, images: imgs.length ? imgs.map(im => ({ url: im.url, name: im.name })) : undefined, attachments: atts.length ? atts.map(a => a.name) : undefined, attachFiles: atts.length ? atts.map(a => ({ name: a.name, path: a.path })) : undefined }, { role: "ai", text: "", thinking: "", streaming: true }]);
@@ -349,8 +368,8 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
       const payload = (!isAgent && imgs.length)
         ? { image: imgs[0].url, images: imgs.map(im => im.url), messages: history, temperature: settings.temperature, maxTokens: settings.maxTokens, contextWindow: cw }
         : isAgent
-        ? { scope: target.domain || "kb", path: target.path, paths: target.paths || undefined, sessionId: sessionIdRef.current || undefined, attachments: atts.length ? atts.map(a => a.path) : undefined, messages: history, model: effectiveModel, thinking: thinkOn, autoMemory: settings.autoMemory !== false, richRender: settings.richRender !== false, webSearch: webOn, research: researchOn, deepResearch: deepOn, deepWork: deepWorkOn, factCheck: factCheckOn, useFiles: useFilesOn, useMemory: useMemoryOn, placeLookup: settings.placeLookup === true, imageGen: settings.imageGen === true, drawThingsUrl: settings.drawThingsUrl || undefined, drawThingsModel: settings.drawThingsModel || undefined, drawThingsSecret: settings.drawThingsSecret || undefined, imageSteps: settings.imageSteps, imageGuidance: settings.imageGuidance, imageStrength: settings.imageStrength, imageWidth: settings.imageWidth, imageHeight: settings.imageHeight, imageMaxDim: settings.imageEditFullRes ? 0 : 1024, temperature: settings.temperature, maxTokens: settings.maxTokens, topP: settings.topP, contextWindow: cw, projectId: target.projectId || undefined, agentId: agentIdRef.current || undefined, describePhotos: settings.facePhotoCount || 5, convoImages: convoImages.length ? convoImages : undefined }
-        : { ...scopeBody, messages: history, sessionId: sessionIdRef.current || undefined, attachments: atts.length ? atts.map(a => a.path) : undefined, thinking: thinkOn, systemPrompt: settings.systemPrompt, model: modelOverride || undefined, useFiles: useFilesOn, useMemory: useMemoryOn, temperature: settings.temperature, maxTokens: settings.maxTokens, topP: settings.topP, contextWindow: cw };
+        ? { scope: target.domain || "kb", path: target.path, paths: target.paths || undefined, sessionId: sessionIdRef.current || undefined, attachments: atts.length ? atts.map(a => a.path) : undefined, messages: history, model: effectiveModel, embedModel: settings.embedModel || undefined, rerankModel: settings.rerankModel || "", thinking: thinkOn, autoMemory: settings.autoMemory !== false, richRender: settings.richRender !== false, webSearch: webOn, research: researchOn, deepResearch: deepOn, deepWork: deepWorkOn, factCheck: factCheckOn, useFiles: useFilesOn, useMemory: useMemoryOn, placeLookup: settings.placeLookup === true, imageGen: settings.imageGen === true, imageBackend: settings.imageBackend || "comfyui", comfyUrl: settings.comfyUrl || undefined, comfyModel: settings.comfyModel || undefined, imageQuality: settings.imageQuality || "fast", drawThingsUrl: settings.drawThingsUrl || undefined, drawThingsModel: settings.drawThingsModel || undefined, drawThingsSecret: settings.drawThingsSecret || undefined, imageSteps: settings.imageSteps, imageGuidance: settings.imageGuidance, imageStrength: settings.imageStrength, imageWidth: settings.imageWidth, imageHeight: settings.imageHeight, imageMaxDim: settings.imageEditFullRes ? 0 : 1024, temperature: settings.temperature, maxTokens: settings.maxTokens, topP: settings.topP, contextWindow: cw, projectId: target.projectId || undefined, agentId: agentIdRef.current || undefined, describePhotos: settings.facePhotoCount || 5, convoImages: convoImages.length ? convoImages : undefined }
+        : { ...scopeBody, messages: history, sessionId: sessionIdRef.current || undefined, attachments: atts.length ? atts.map(a => a.path) : undefined, thinking: thinkOn, systemPrompt: settings.systemPrompt, model: modelOverride || undefined, embedModel: settings.embedModel || undefined, rerankModel: settings.rerankModel || "", useFiles: useFilesOn, useMemory: useMemoryOn, temperature: settings.temperature, maxTokens: settings.maxTokens, topP: settings.topP, contextWindow: cw };
       const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -459,9 +478,13 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
 
   function stop() { if (abortRef.current) abortRef.current.abort(); }
 
-  // Draw Things settings + chat model, shared by the image commands and the edit modal
+  // active image backend + chat model, shared by the image commands and the edit modal
   function dtBody() {
     return {
+      imageBackend: settings.imageBackend || "comfyui",
+      comfyUrl: settings.comfyUrl || undefined,
+      comfyModel: settings.comfyModel || undefined,
+      quality: settings.imageQuality || "fast",
       drawThingsUrl: settings.drawThingsUrl || undefined,
       drawThingsModel: settings.drawThingsModel || undefined,
       drawThingsSecret: settings.drawThingsSecret || undefined,
@@ -486,10 +509,10 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
   // forced: re-run params from a Regenerate/Use-exact action (skips target discovery for edits).
   async function runImageCommand(kind, prompt, { base, exact = false, forced } = {}) {
     const baseMsgs = base || msgs;
-    if (!settings.imageGen || !settings.drawThingsUrl) {
+    if (!settings.imageGen) {
       setMsgs([...baseMsgs,
         { role: "user", text: `/image-${kind} ${prompt}` },
-        { role: "ai", text: "Image generation is off. Turn it on in **Settings → Image generation** and point it at your Draw Things HTTP server (Protocol: HTTP, default port 7860).", error: false }]);
+        { role: "ai", text: "Image generation is off. Turn it on in **Settings → Image generation** and point it at your ComfyUI or Draw Things server.", error: false }]);
       setMsgs(cur => { persist(cur); return cur; });
       return;
     }
@@ -633,7 +656,7 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
         {msgs.map((m, i) => (
           <ChatMessage key={i} m={m} i={i} isLast={i === msgs.length - 1} busy={busy} onOpenPath={onOpenPath}
             editMsg={editMsg} decideAction={decideAction} copyMsg={copyMsg} downloadMsg={downloadMsg} regenerate={regenerate}
-            onEditImage={editChatImage} onImageAction={imageAction} />
+            onEditImage={editChatImage} onImageAction={imageAction} onZoomImage={(items, index) => setChatZoom({ items, index })} />
         ))}
         </div>
       </div>
@@ -660,6 +683,8 @@ function ChatPanel({ target, settings, online, onClose, onOpenPath, variant, mod
 
       {imgEdit && <ImageEditModal {...imgEdit} settings={settings} onClose={() => setImgEdit(null)}
         onDone={(item) => setMsgs(m => { const next = [...m, { role: "ai", text: "Edited image", renders: [{ type: "images", title: "Edited image", items: [item] }] }]; persist(next); return next; })} />}
+      {chatZoom && <ChatLightbox items={chatZoom.items} index={chatZoom.index}
+        onIndex={index => setChatZoom(z => ({ ...z, index }))} onClose={() => setChatZoom(null)} />}
     </div>
   );
 }

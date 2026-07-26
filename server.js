@@ -17,15 +17,25 @@ const multer = require("multer");     // knowledge-base file uploads
 const exifr = require("exifr");        // photo EXIF (date, camera, GPS)
 const { Jimp } = require("jimp");       // pixel access for perceptual image hashing (visual "related")
 
+/* ---- crash safety, part 2: a backstop for errors OUTSIDE the request/response cycle (scheduler
+   ticks, setTimeout-based background jobs like episode/skill distillation) that the route wrapper
+   below can't reach, plus a final net for anything that somehow still slips through. Deliberately
+   logs and stays alive rather than exiting: this ships as a packaged Electron app with no process
+   supervisor (electron/main.js just shows an error dialog on unexpected exit — see serverProc.on
+   ("exit", ...) — it does not auto-restart), so for a single-user local tool, staying up in a
+   possibly-degraded state beats a hard crash that requires the user to manually relaunch. ---- */
+process.on("uncaughtException", (err) => console.error("[uncaughtException]", err && err.stack || err));
+process.on("unhandledRejection", (err) => console.error("[unhandledRejection]", err && err.stack || err));
+
 /* ---- extracted modules (see SERVER-REFACTOR-PLAN.md) — re-bound into local scope
    so existing call sites are unchanged ---- */
-const { DATA_DIR, PORT, HOST, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE } = require("./src/config");
+const { DATA_DIR, PORT, HOST, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE, OLLAMA_EMBED_MODEL, OLLAMA_RERANK_MODEL, COMFYUI_URL } = require("./src/config");
 const ollamaConn = require("./src/llm/ollama-conn");
 const { writeJSONAtomic } = require("./src/util/json-store");
 const { TEXTLIKE, MIME, DESCRIBABLE_IMG, extOf, kindOf, fmtSize, fmtDate, isImageFile, safeName } = require("./src/util/files");
 const { buildProvenance } = require("./src/util/text");
 const { wantsVisual } = require("./src/media/render");
-const {  } = require("./src/web/search");
+const { DDG_HEADERS } = require("./src/web/search");
 const { imageMeta, persistImageMeta, tagStore, persistTags, getTags, setTags, pdfOcrStore, persistPdfOcr, phashStore, persistPhash, geoStore, persistGeo, faceStore, persistFaces, entityStore, persistEntities, placeNames, persistPlaceNames } = require("./src/state/sidecars");
 const { USERS_DIR, userStores, storesFor, kbDirFor, projectKbDirFor, isKbDir } = require("./src/state/user-stores");
 const serverSettings = require("./src/state/server-settings");
@@ -41,14 +51,15 @@ const { getPhash, hammingHex, warmPhashes, relatedFor, DUP_EXACT, DUP_NEAR } = r
 const { FACE_SCAN_VERSION, geoFor, faceDist, tagPhotos, personDescs, upsertPerson } = require("./src/media/photos");
 const { reverseGeocode, graphCache, graphFor, ensurePhotoGeo, docExcerptsFor, graphRetrieve } = require("./src/media/graph");
 const { dtEcho, dtGenerate, dtEdit } = require("./src/media/drawthings");
+const { cfEcho, cfGenerate, cfEdit } = require("./src/media/comfyui");
 const { enhancePrompt, saveGeneratedImage } = require("./src/media/image-prompt");
 const { completeJSON, completeText } = require("./src/llm/ollama");
 const { providerOf: modelProviderOf, bareModel: routedBareModel, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("./src/llm/router");
 const providerLLM = require("./src/llm/providers");
 const { mcpEnabled, mcpPublic, forgetSession, dropMcpClient, mcpListTools, mcpCallTool } = require("./src/mcp/client");
-const { addMemory, memPublic, sysInfoBlock, memoryBlock, scheduleEpisode, scheduleTitle, cancelUserTimers } = require("./src/llm/memory");
+const { addMemory, memPublic, sysInfoBlock, memoryBlock, scheduleEpisode, scheduleTitle, cancelUserTimers, ensureMemoryReady, MEM_TYPES, MEM_ALWAYS } = require("./src/llm/memory");
 const { addSkill, updateSkill, removeSkill, skillsBlock, skillPublic } = require("./src/llm/skills");
-const { rebuildProfile, profileBlock } = require("./src/llm/profile");
+const { rebuildProfile, profileBlock, scheduleProfileRebuild, currentProfile } = require("./src/llm/profile");
 const { startScheduler, runJob, deliver, normalizeJob, jobPublic, CADENCES } = require("./src/agent/scheduler");
 const { runExtraction, contentBasis } = require("./src/rag/extract-batch");
 const { findFileOnDisk, VERIFY_SYS, TOOL_REGISTRY, RETRIEVAL_TOOLS, ROSTER_DEFAULTS, agentToolDefs, agentToolMechanics, agentSys, execTool, makeThinkSplitter, deepResearchPipeline, rosterFor, multiAgentPipeline, chatImageRefs, resolveImageRef, materializeChatImage } = require("./src/agent/core");
@@ -57,6 +68,30 @@ const { makeMcpServer } = require("./src/mcp/server");
 const app = express();
 app.use(express.json({ limit: "64mb" }));   // base64 file uploads from chat attachments come through JSON
 app.use(express.static(path.join(__dirname, "public")));
+
+/* ---------------- crash safety: an error in ANY route handler must fail that ONE request, never
+   the whole process. Express 4 does not catch a rejected promise from an async handler — a thrown
+   error inside `async (req, res) => {...}` becomes an unhandled rejection, which crashes the entire
+   Node process (every user, every in-flight request) instead of just failing the one route. This
+   bit us for real: PATCH /api/memory/:id referenced an unimported name and took the whole server
+   down. Most routes already wrap their body in try/catch, but auditing all ~130 by hand isn't
+   reliable — instead, wrap every handler registered via get/post/put/patch/delete so a rejection
+   always reaches Express's error pipeline (below) as a normal error response. Deliberately does NOT
+   wrap app.use (middleware, static files, sub-routers) — the risk this addresses is specifically in
+   route handlers, and .use has too many different call shapes to safely monkey-patch blind. ---- */
+function wrapRouteHandler(fn) {
+  if (typeof fn !== "function" || fn.length >= 4) return fn;   // (err, req, res, next) error middleware — leave untouched
+  return function (req, res, next) {
+    try {
+      const result = fn(req, res, next);
+      if (result && typeof result.catch === "function") result.catch(next);
+    } catch (e) { next(e); }
+  };
+}
+for (const method of ["get", "post", "put", "patch", "delete"]) {
+  const orig = app[method].bind(app);
+  app[method] = (routePath, ...handlers) => orig(routePath, ...handlers.map(wrapRouteHandler));
+}
 
 // DATA_DIR resolved in src/config.js (honors HEAPCHAT_DATA_DIR for the desktop wrapper).
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -193,6 +228,8 @@ app.get("/api/config", (req, res) => {
     model: OLLAMA_MODEL,
     visionModel: OLLAMA_VISION_MODEL,
     agentModel: OLLAMA_AGENT_MODEL,
+    embedModel: OLLAMA_EMBED_MODEL,
+    rerankModel: OLLAMA_RERANK_MODEL,
     home: req.user.role === "admin" ? os.homedir() : ((req.user.folders || [])[0] || ""),
     kb,
     generated,
@@ -776,7 +813,7 @@ app.post("/api/index", async (req, res) => {
     const folderPath = String((req.body || {}).path || "");
     if (!folderPath) return res.status(400).json({ error: "path required" });
     if (!guardPath(req, res, folderPath)) return;
-    const stats = await buildIndex(folderPath);
+    const stats = await buildIndex(folderPath, (req.body || {}).embedModel || undefined);
     res.json(stats);
   } catch (e) {
     res.status(502).json({ error: e.message });
@@ -1239,24 +1276,38 @@ app.post("/api/batch/rename/apply", async (req, res) => {
 });
 
 /* ---------------- long-term memory ---------------- */
-app.get("/api/memory", (req, res) => res.json({ memory: storesFor(req.user).memory.map(memPublic) }));
+// backfilled first (embeddings + preference/instruction scope) so the Manage page always shows
+// accurate data, not a temporary blank scope for entries saved before scope classification existed
+app.get("/api/memory", async (req, res) => { await ensureMemoryReady(req.user); res.json({ memory: storesFor(req.user).memory.map(memPublic) }); });
 app.post("/api/memory", async (req, res) => {
   const t = String((req.body || {}).text || "").trim();
   if (!t) return res.status(400).json({ error: "text required" });
   res.json(await addMemory(req.user, t, "manual", (req.body || {}).type));
 });
-// edit a memory's text or type (Manage page)
+// edit a memory's text, type, or scope (Manage page). `scope` ("global" | "topical") only matters
+// for preference/instruction — see src/llm/memory.js: global stays always-on, topical is
+// relevance-gated like a fact. Retyping into/out of preference/instruction, or changing scope,
+// can change what's always-on, so it reschedules a profile rebuild.
 app.patch("/api/memory/:id", async (req, res) => {
   const st = storesFor(req.user);
   const m = st.memory.find(x => x.id === req.params.id);
   if (!m) return res.status(404).json({ error: "Not found" });
   const b = req.body || {};
+  let profileAffecting = false;
   if (typeof b.text === "string" && b.text.trim() && b.text.trim() !== m.text) {
     m.text = b.text.trim(); m.updatedAt = Date.now();
     try { [m.vec] = await embed([m.text]); } catch {}
   }
-  if (MEM_TYPES.has(b.type)) m.type = b.type;
+  if (MEM_TYPES.has(b.type) && b.type !== m.type) {
+    if (MEM_ALWAYS.has(m.type) || MEM_ALWAYS.has(b.type)) profileAffecting = true;
+    m.type = b.type;
+  }
+  if ((b.scope === "global" || b.scope === "topical") && b.scope !== m.scope) {
+    m.scope = b.scope;
+    if (MEM_ALWAYS.has(m.type)) profileAffecting = true;
+  }
   st.save("memory.json");
+  if (profileAffecting) scheduleProfileRebuild(req.user);
   res.json(memPublic(m));
 });
 app.delete("/api/memory/:id", (req, res) => {
@@ -1297,6 +1348,16 @@ app.post("/api/drawthings/test", async (req, res) => {
     res.json({ ok: true, models, files: echo.files, sharedSecretMissing: echo.sharedSecretMissing });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
+// probe a local ComfyUI server: confirm reachability and list installed checkpoints
+app.post("/api/comfyui/test", async (req, res) => {
+  const { url } = req.body || {};
+  // same SSRF guard as /api/drawthings/test — only an admin's url override is honored
+  const effectiveUrl = (req.user.role === "admin" && url) || COMFYUI_URL;
+  try {
+    const echo = await cfEcho({ url: effectiveUrl });
+    res.json({ ok: true, models: echo.files, files: echo.files, message: echo.message });
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
 
 // pick the kb dir for the request (project-scoped if a valid projectId is supplied)
 function imageKbDir(req) {
@@ -1309,27 +1370,43 @@ function drawThingsFrom(req) {
   const url = (req.user.role === "admin" && req.body.drawThingsUrl) || "http://localhost:7860";
   return { url, model: req.body.drawThingsModel || undefined, secret: req.body.drawThingsSecret || undefined };
 }
+function comfyFrom(req) {
+  const url = (req.user.role === "admin" && req.body.comfyUrl) || COMFYUI_URL;
+  return { url, model: req.body.comfyModel || undefined };
+}
 // shape a saved generated image for the client (matches the renders.jsx "images" item)
 function imageItem(p) {
   const enc = encodeURIComponent(p);
   return { path: p, url: "/api/file?path=" + enc, image: "/api/file?path=" + enc, thumb: "/api/thumb?path=" + enc + "&w=384", title: path.basename(p) };
 }
 
-// direct text-to-image: enhance the prompt (optional), generate via Draw Things, save under <kb>/generated/
+// direct text-to-image: enhance the prompt (optional), generate via the active image backend
+// (ComfyUI by default, Draw Things if the request asks for it), save under <kb>/generated/
 app.post("/api/image/create", async (req, res) => {
   try {
     const b = req.body || {};
     const prompt = String(b.prompt || "").trim();
     if (!prompt) return res.json({ ok: false, error: "A prompt is required." });
-    const dt = drawThingsFrom(req);
     const enhance = b.enhance !== false;
     const finalPrompt = enhance ? await enhancePrompt(b.model || OLLAMA_MODEL, prompt, "create") : prompt;
-    const { images } = await dtGenerate({
-      url: dt.url, sharedSecret: dt.secret, model: dt.model,
-      prompt: finalPrompt, negativePrompt: b.negativePrompt || "",
-      width: Number(b.width) || 512, height: Number(b.height) || 512,
-      steps: Number(b.steps) || 4, guidanceScale: b.guidanceScale != null ? Number(b.guidanceScale) : 1.5,
-    });
+    const useFlux = b.imageBackend !== "drawthings" && b.quality === "best";
+    const width = Number(b.width) || (useFlux ? 1024 : 512), height = Number(b.height) || (useFlux ? 1024 : 512);
+    let images;
+    if (b.imageBackend === "drawthings") {
+      const dt = drawThingsFrom(req);
+      ({ images } = await dtGenerate({
+        url: dt.url, sharedSecret: dt.secret, model: dt.model,
+        prompt: finalPrompt, negativePrompt: b.negativePrompt || "", width, height,
+        steps: Number(b.steps) || 4, guidanceScale: b.guidanceScale != null ? Number(b.guidanceScale) : 1.5,
+      }));
+    } else if (useFlux) {
+      const cf = comfyFrom(req);
+      ({ images } = await cfGenerate({ url: cf.url, quality: "best", prompt: finalPrompt, width, height }));
+    } else {
+      const cf = comfyFrom(req);
+      const model = cf.model || (await cfEcho({ url: cf.url }).then(e => (e.files || []).find(f => !/audio|ace[_-]?step|inpaint/i.test(f)))) || undefined;
+      ({ images } = await cfGenerate({ url: cf.url, model, prompt: finalPrompt, negativePrompt: b.negativePrompt || "", width, height }));
+    }
     const kb = imageKbDir(req);
     const items = [];
     for (const im of images) items.push(imageItem(await saveGeneratedImage(kb, im.png, prompt)));
@@ -1337,9 +1414,10 @@ app.post("/api/image/create", async (req, res) => {
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
 
-// edit an image (image-to-image): the source (a library path, access-checked, or a data URL)
-// is loaded as the canvas base and regenerated with the user's change applied. `strength`
-// controls how much it preserves the original (lower = closer to the source).
+// edit an image (image-to-image): the source (a library path, a data: URL, or a plain http(s) URL —
+// e.g. an "Edit with AI" click on a web-search image result) is loaded as the canvas base and
+// regenerated with the user's change applied. `strength` controls how much it preserves the
+// original (lower = closer to the source).
 app.post("/api/image/edit", async (req, res) => {
   try {
     const b = req.body || {};
@@ -1351,20 +1429,41 @@ app.post("/api/image/edit", async (req, res) => {
       if (!canAccessPath(req.user, p) || !fs.existsSync(p) || !isImageFile(p)) return res.json({ ok: false, error: "No access to that image, or it isn't an image file." });
       imageBuffer = await fsp.readFile(p);
       label = `edit of ${path.basename(p)}`;
+    } else if (b.dataUrl && /^https?:\/\//i.test(b.dataUrl)) {
+      // a real external URL (e.g. a web-search image result), not a data: URI — fetch the actual bytes
+      // instead of trying to base64-decode the URL string itself
+      let r;
+      try { r = await fetch(b.dataUrl, { headers: DDG_HEADERS, signal: AbortSignal.timeout(15000) }); }
+      catch (e) { return res.json({ ok: false, error: `Could not fetch that image: ${e.message}` }); }
+      if (!r.ok) return res.json({ ok: false, error: `Could not fetch that image (HTTP ${r.status}).` });
+      imageBuffer = Buffer.from(await r.arrayBuffer());
+      label = `edit of ${path.basename(new URL(b.dataUrl).pathname) || "web image"}`;
     } else if (b.dataUrl) {
       imageBuffer = Buffer.from(String(b.dataUrl).replace(/^data:[^,]*,/, ""), "base64");
     }
     if (!imageBuffer || !imageBuffer.length) return res.json({ ok: false, error: "A base image (path or dataUrl) is required to edit." });
-    const dt = drawThingsFrom(req);
     const enhance = b.enhance !== false;
     const finalPrompt = enhance ? await enhancePrompt(b.model || OLLAMA_MODEL, prompt, "edit") : prompt;
     const strength = typeof b.strength === "number" ? Math.max(0.05, Math.min(1, b.strength)) : 0.99;
     const maxDim = b.maxDim != null ? Number(b.maxDim) : 1024;   // 0 = original resolution
-    const { images } = await dtEdit({
-      url: dt.url, sharedSecret: dt.secret, model: dt.model, imageBuffer, maxDim,
-      prompt: finalPrompt, negativePrompt: b.negativePrompt || "", strength,
-      steps: Number(b.steps) || 4, guidanceScale: b.guidanceScale != null ? Number(b.guidanceScale) : 1.5,
-    });
+    let images;
+    if (b.imageBackend === "drawthings") {
+      const dt = drawThingsFrom(req);
+      ({ images } = await dtEdit({
+        url: dt.url, sharedSecret: dt.secret, model: dt.model, imageBuffer, maxDim,
+        prompt: finalPrompt, negativePrompt: b.negativePrompt || "", strength,
+        steps: Number(b.steps) || 4, guidanceScale: b.guidanceScale != null ? Number(b.guidanceScale) : 1.5,
+      }));
+    } else if (b.quality === "best") {
+      const cf = comfyFrom(req);
+      ({ images } = await cfEdit({ url: cf.url, quality: "best", imageBuffer, prompt: finalPrompt }));
+    } else {
+      const cf = comfyFrom(req);
+      const model = cf.model || (await cfEcho({ url: cf.url }).then(e => (e.files || []).find(f => !/audio|ace[_-]?step|inpaint/i.test(f)))) || undefined;
+      // see core.js edit_image: the strength slider is tuned for Draw Things' fast sampler — rescale for ComfyUI's plain img2img
+      const denoise = Math.max(0.1, Math.min(0.85, strength * 0.7));
+      ({ images } = await cfEdit({ url: cf.url, model, imageBuffer, maxDim, prompt: finalPrompt, negativePrompt: b.negativePrompt || "", strength: denoise }));
+    }
     const kb = imageKbDir(req);
     const items = [];
     for (const im of images) items.push(imageItem(await saveGeneratedImage(kb, im.png, label)));
@@ -1390,13 +1489,24 @@ app.delete("/api/skills/:id", (req, res) => {
 });
 
 /* ---------------- user profile: the synthesized "what Heap Chat knows about you" ---------------- */
-app.get("/api/profile", (req, res) => res.json({ profile: storesFor(req.user).profile || null }));
+// A stored-but-retired profile (built under older rules — see PROFILE_VERSION) is no longer injected
+// anywhere, so don't present it as live. `stale` lets the UI say why the box is empty and offer a rebuild.
+app.get("/api/profile", (req, res) => {
+  const stored = storesFor(req.user).profile;
+  const profile = currentProfile(req.user);
+  res.json({ profile, stale: !profile && !!(stored && stored.summary) });
+});
 app.post("/api/profile/rebuild", async (req, res) => {
   try {
     const profile = await rebuildProfile(req.user, { force: true });   // user asked → build from whatever exists
-    // distinguish "synthesized nothing" (no memories yet) from a real profile so the UI can explain
-    const hasMemories = storesFor(req.user).memory.length > 0;
-    res.json({ profile, empty: !profile, reason: !profile && !hasMemories ? "no-memories" : null });
+    // distinguish WHY nothing was built, so the UI can explain instead of just failing silently:
+    // no memories at all vs. memories exist but none are global-scope preference/instruction (the
+    // profile only ever summarizes those — facts/episodes and topical notes are relevance-gated
+    // elsewhere, never folded in here, even though they're real saved memories)
+    const st = storesFor(req.user);
+    let reason = null;
+    if (!profile) reason = !st.memory.length ? "no-memories" : (!st.memory.some(m => MEM_ALWAYS.has(m.type) && m.scope !== "topical") ? "no-global-notes" : null);
+    res.json({ profile, empty: !profile, reason });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // let the user correct the summary (transparency — they own their profile)
@@ -1863,7 +1973,7 @@ async function compactHistory(model, sessionKey, history, budgetChars) {
 // chat-image attachment helpers (chatImageRefs/resolveImageRef/materializeChatImage) → src/agent/core.js
 
 app.post("/api/agent", async (req, res) => {
-  const { scope = "kb", path: targetPath, messages = [], model, temperature: reqTemp = 0.7, maxTokens: reqMaxTokens = 2048, topP: reqTopP = 0.9, autoMemory = true, contextWindow, richRender = true, thinking = false, webSearch = false, research = false, deepResearch = false, deepWork = false, factCheck = true, placeLookup = false,
+  const { scope = "kb", path: targetPath, messages = [], model, embedModel, rerankModel, temperature: reqTemp = 0.7, maxTokens: reqMaxTokens = 2048, topP: reqTopP = 0.9, autoMemory = true, contextWindow, richRender = true, thinking = false, webSearch = false, research = false, deepResearch = false, deepWork = false, factCheck = true, placeLookup = false,
     useFiles = true, useMemory = true, imageGen = false, projectId, agentId } = req.body || {};
   // a custom agent overrides the persona, sampling, model, and which tool capabilities are available;
   // the per-chat "Use my documents" / "Use memory" toggles can also switch files/memory off for one chat.
@@ -1913,6 +2023,10 @@ app.post("/api/agent", async (req, res) => {
   ctx.user = req.user;
   ctx.kbDir = projectId && findProject(req.user, projectId) ? projectKbDirFor(req.user, projectId) : kbDirFor(req.user);
   ctx.model = chosen;
+  ctx.embedModel = embedModel || OLLAMA_EMBED_MODEL;
+  // "" is a REAL choice here (the Settings picker's "Off — embedding similarity only"), so an
+  // explicit empty string must not fall through to the server default — only an absent field does.
+  ctx.rerankModel = rerankModel != null ? rerankModel : OLLAMA_RERANK_MODEL;
   ctx.sessionId = String(req.body.sessionId || "") || null;
   const lastUserMsg = (([...messages].reverse().find(m => m.role === "user")) || {}).content || "";
   ctx.chartHint = wantsVisual(lastUserMsg);
@@ -1925,8 +2039,12 @@ app.post("/api/agent", async (req, res) => {
   const pastedUrls = extractUrls(lastUserMsg).slice(0, 3);   // links the user pasted → scrape them directly
   ctx.describePhotos = Math.max(1, Math.min(Number(req.body.describePhotos) || 5, 10));   // photos to vision-analyze for appearance
   ctx.placeLookup = !!placeLookup;   // when on, knowledge_graph may reverse-geocode place names on demand (online)
-  // local Draw Things HTTP endpoint for generate_image/edit_image — only an admin's url override is honored (SSRF guard, see drawThingsFrom)
+  // active image backend for generate_image/edit_image — ComfyUI by default, Draw Things kept as an opt-in fallback
+  ctx.imageBackend = req.body.imageBackend === "drawthings" ? "drawthings" : "comfyui";
+  // local Draw Things HTTP endpoint — only an admin's url override is honored (SSRF guard, see drawThingsFrom)
   ctx.drawThings = { url: (req.user.role === "admin" && req.body.drawThingsUrl) || "http://localhost:7860", model: req.body.drawThingsModel, secret: req.body.drawThingsSecret };
+  // local ComfyUI endpoint — same SSRF guard (see comfyFrom)
+  ctx.comfy = { url: (req.user.role === "admin" && req.body.comfyUrl) || COMFYUI_URL, model: req.body.comfyModel };
   // image generation defaults from the user's Settings — the agent tools use these (the model can't override steps/guidance/strength)
   ctx.imageDefaults = {
     steps: Number(req.body.imageSteps) || 4,
@@ -1935,6 +2053,7 @@ app.post("/api/agent", async (req, res) => {
     width: Number(req.body.imageWidth) || 512,
     height: Number(req.body.imageHeight) || 512,
     maxDim: req.body.imageMaxDim != null ? Number(req.body.imageMaxDim) : 1024,
+    quality: req.body.imageQuality === "best" ? "best" : "fast",   // ComfyUI only — "best" (Flux) is the session default; the model can still ask for the other explicitly per call
   };
   ctx.convoImages = chatImageRefs(req.body.convoImages);   // images in this chat, materialized on demand by save_note
   // models won't reliably fill save_note's `images` param, so when the request is about the
@@ -2319,6 +2438,8 @@ app.post("/api/chat", async (req, res) => {
     thinking = false,
     systemPrompt = "",
     model,
+    embedModel,
+    rerankModel,
     temperature = 0.7,
     maxTokens = 2048,
     topP = 0.9,
@@ -2326,6 +2447,7 @@ app.post("/api/chat", async (req, res) => {
     useFiles = true,    // per-chat: pull context from the user's docs/KB (RAG)
     useMemory = true,   // per-chat: apply long-term memory
   } = req.body || {};
+  const rerankOpt = { rerankModel: rerankModel != null ? rerankModel : OLLAMA_RERANK_MODEL };   // "" = explicitly off, see /api/agent
 
   try {
     if (scope === "file" && filePath && !guardPath(req, res, filePath)) return;
@@ -2348,7 +2470,7 @@ app.post("/api/chat", async (req, res) => {
       const kb = kbDirFor(req.user);
       let excerpts = "";
       if (useFiles !== false && lastUser && loadIndex(kb)) {   // "Use my documents" off → skip KB grounding
-        const { hits } = await retrieve(kb, lastUser.content, 6);
+        const { hits } = await retrieve(kb, lastUser.content, 6, rerankOpt);
         const relevant = hits.filter(h => h.score >= KB_THRESHOLD);
         // GraphRAG: add documents relationally connected to entities named in the question (not gated
         // by the similarity threshold — they're selected by graph links, not chunk similarity)
@@ -2375,9 +2497,9 @@ app.post("/api/chat", async (req, res) => {
       if (!folderPath) return res.status(400).json({ error: "folderPath required" });
       chosenModel = model || OLLAMA_MODEL;
       // ensure an index exists (build on first use)
-      if (!loadIndex(folderPath)) { try { await buildIndex(folderPath); } catch {} }
+      if (!loadIndex(folderPath)) { try { await buildIndex(folderPath, embedModel || undefined); } catch {} }
       const lastUser = [...turns].reverse().find(t => t.role === "user");
-      const { hits, indexed } = await retrieve(folderPath, lastUser ? lastUser.content : "", 8);
+      const { hits, indexed } = await retrieve(folderPath, lastUser ? lastUser.content : "", 8, rerankOpt);
       // de-duplicate citations by filename, keep best score
       const best = new Map();
       for (const h of hits) if (!best.has(h.name) || best.get(h.name) < h.score) best.set(h.name, h.score);
@@ -2624,6 +2746,14 @@ app.delete("/mcp", mcpNoSession);
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api/")) return next();   // let unmatched API routes 404 normally
   res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// catches anything wrapRouteHandler (above) routed here via next(err) — the backstop that keeps a
+// single bad request from ever reaching the process level. Must be registered after every route.
+app.use((err, req, res, _next) => {
+  console.error(`[${req.method} ${req.path}]`, err && err.stack || err);
+  if (res.headersSent) return res.end();
+  res.status(500).json({ error: (err && err.message) || "Internal server error" });
 });
 
 /* ---------------- network access: admin-toggleable bind (data/server.json) ---------------- */

@@ -16,6 +16,9 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b";
 const OLLAMA_VISION_MODEL = process.env.OLLAMA_VISION_MODEL || OLLAMA_MODEL;
 const OLLAMA_AGENT_MODEL = process.env.OLLAMA_AGENT_MODEL || OLLAMA_MODEL;
 const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || "30m";   // keep models resident between requests — kills the cold-load stall
+const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text:latest";   // folder-level RAG ("Ask folder") — must stay consistent within an index; see src/rag/index.js
+const OLLAMA_RERANK_MODEL = process.env.OLLAMA_RERANK_MODEL || "";   // optional cross-encoder second pass in src/rag/retrieve.js. OFF unless explicitly configured: it costs one extra model call per candidate on every search, and a model nobody pulled would burn that on failures forever (best-effort ranking means the fallback is silent). Suggested value: qllama/bge-reranker-v2-m3:latest
+const COMFYUI_URL = (process.env.COMFYUI_URL || "http://localhost:8000").replace(/\/+$/, "");   // local ComfyUI server for generate_image/edit_image (default active image backend)
 
 // NVIDIA's OpenAI-compatible API (integrate.api.nvidia.com) — an optional second provider
 // alongside Ollama. The key is server-side only (admin-configured via .env); it's never sent
@@ -27,5 +30,5 @@ const NVIDIA_MODELS = (process.env.NVIDIA_MODELS || "z-ai/glm-5.2").split(",").m
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || NVIDIA_MODELS[0] || "";
 const NVIDIA_AGENT_MODEL = process.env.NVIDIA_AGENT_MODEL || NVIDIA_MODEL;
 
-module.exports = { ROOT, DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE,
+module.exports = { ROOT, DATA_DIR, PORT, HOST, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_VISION_MODEL, OLLAMA_AGENT_MODEL, OLLAMA_KEEP_ALIVE, OLLAMA_EMBED_MODEL, OLLAMA_RERANK_MODEL, COMFYUI_URL,
   NVIDIA_API_KEY, NVIDIA_BASE_URL, NVIDIA_MODELS, NVIDIA_MODEL, NVIDIA_AGENT_MODEL };
