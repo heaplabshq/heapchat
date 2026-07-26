@@ -129,11 +129,12 @@ function App({ user }) {
   useEffect(() => {
     fetch("/api/config").then(r => r.json()).then(cfg => {
       setConfig(cfg);
-      const base = { ...DEFAULT_SETTINGS, model: cfg.model, agentModel: cfg.agentModel, endpoint: cfg.endpoint };
+      const base = { ...DEFAULT_SETTINGS, model: cfg.model, agentModel: cfg.agentModel, embedModel: cfg.embedModel, rerankModel: cfg.rerankModel, endpoint: cfg.endpoint };
       const s = loadSavedSettings(settingsKey, base);
       // if the user never customised these, keep them tracking .env
       if (!s.model) s.model = cfg.model;
       if (!s.agentModel) s.agentModel = cfg.agentModel;
+      if (!s.embedModel) s.embedModel = cfg.embedModel;
       if (!s.endpoint) s.endpoint = cfg.endpoint;
       // one-time: adopt the mandated image defaults over stale saved settings (steps 4 / guidance 1.5 / strength 0.99)
       if (s.imageDefaultsV !== DEFAULT_SETTINGS.imageDefaultsV) {
@@ -637,7 +638,7 @@ function App({ user }) {
     setTimeout(() => setToast(null), 1800);
   }
   function resetSettings() {
-    const base = { ...DEFAULT_SETTINGS, model: config?.model || "", agentModel: config?.agentModel || "", endpoint: config?.endpoint || "" };
+    const base = { ...DEFAULT_SETTINGS, model: config?.model || "", agentModel: config?.agentModel || "", embedModel: config?.embedModel || "", rerankModel: config?.rerankModel || "", endpoint: config?.endpoint || "" };
     setDraft(base);
   }
   function setDraftPartial(p) { setDraft(d => ({ ...d, ...p })); }

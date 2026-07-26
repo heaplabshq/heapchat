@@ -171,15 +171,20 @@ function PeopleView({ folder, onClose }) {
     const known = peopleJ.people || [];
     setKnownPeople(known);
     const clusters = clusterFaces(allFaces);
+    const toSync = [];
     for (const c of clusters) {
       // 1) authoritative: if members were explicitly assigned, use the majority assigned person
+      // (already persisted from that earlier assignment — nothing new to save here)
       const idCount = {}, idName = {};
       for (const m of c.members) if (m.personId) { idCount[m.personId] = (idCount[m.personId] || 0) + 1; idName[m.personId] = m.personName; }
       const topId = Object.keys(idCount).sort((a, b) => idCount[b] - idCount[a])[0];
       if (topId) { c.name = idName[topId]; c.personId = topId; continue; }
-      // 2) otherwise, loosely match an already-named person by face similarity
+      // 2) otherwise, loosely match an already-named person by face similarity. This is a genuinely
+      // NEW finding (these photos aren't in that person's record yet) — queue it to persist below.
+      // Previously this only saved once the user happened to retype the already-correct name on blur,
+      // so a correct auto-match in a fresh scan silently never reached the People screen.
       const m = matchPerson(c.centroid, known);
-      if (m) { c.name = m.name; c.personId = m.id; }
+      if (m) { c.name = m.name; c.personId = m.id; toSync.push(c); }
     }
     clusters.sort((a, b) => (!!b.name - !!a.name) || (b.photos.length - a.photos.length));
     const nm = {}; clusters.forEach(c => { nm[c.id] = c.name || ""; });
@@ -187,6 +192,22 @@ function PeopleView({ folder, onClose }) {
     setPeople(clusters);
     setFoundFaces(allFaces.length);
     setPhase("ready");
+    if (toSync.length) {
+      await Promise.all(toSync.map(c => syncCluster(c, c.name)));
+      refreshKnown();
+    }
+  }
+
+  // push a cluster's faces to the server as belonging to `nm` (creates or merges into an existing
+  // person — upsertPerson dedupes photos/descriptors, so this is safe to call even when nothing's new).
+  async function syncCluster(c, nm) {
+    const faces = c.members.filter(m => m.path && typeof m.index === "number").map(m => ({ path: m.path, index: m.index }));
+    if (!nm || !faces.length) return null;
+    try {
+      const r = await fetch("/api/faces/assign-bulk", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ faces, name: nm }) }).then(r => r.json());
+      return r.id || null;
+    } catch { return null; }
   }
 
   usePE(() => {
@@ -217,18 +238,15 @@ function PeopleView({ folder, onClose }) {
   // save a cluster's name (controlled input → POST with the cluster's centroid + photos)
   function refreshKnown() { return fetch("/api/people").then(r => r.json()).then(j => setKnownPeople(j.people || [])).catch(() => {}); }
 
+  // stamps EVERY face in this group with the person (authoritative) — resolves by name, and a later
+  // Re-match honors these stamps instead of re-guessing, so corrections stick.
   async function commitClusterName(c) {
     const nm = (names[c.id] || "").trim();
-    if (!nm || nm === (c.name || "")) return;   // unchanged → nothing to do
-    try {
-      // stamp EVERY face in this group with the person (authoritative) — resolves by name, and
-      // a later Re-match honors these stamps instead of re-guessing, so corrections stick.
-      const faces = c.members.filter(m => m.path && typeof m.index === "number").map(m => ({ path: m.path, index: m.index }));
-      const r = await fetch("/api/faces/assign-bulk", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ faces, name: nm }) }).then(r => r.json());
-      setPeople(prev => prev.map(p => p.id === c.id ? { ...p, name: nm, personId: r.id } : p));
-      refreshKnown();
-    } catch {}
+    if (!nm || nm === (c.name || "")) return;   // no edit to save (an auto-match with no user edit is synced separately, see loadAndCluster)
+    const id = await syncCluster(c, nm);
+    if (!id) return;
+    setPeople(prev => prev.map(p => p.id === c.id ? { ...p, name: nm, personId: id } : p));
+    refreshKnown();
   }
 
   // assign a single face (inside a photo) to a person by name (merges into an existing same-named person)
@@ -383,7 +401,9 @@ function PhotoFacesPanel({ path, people, onChanged, idSuffix = "" }) {
   const [scanErr, setScanErr] = usePS(null);
   const [known, setKnown] = usePS(people || []);
   const mtimeRef = usePR(0);
+  const autoSyncedRef = usePR(new Set());   // face indices already auto-persisted, so we don't re-POST every render
   usePE(() => {
+    autoSyncedRef.current = new Set();
     if (!path) { console.warn("[faces] PhotoFacesPanel rendered without a path"); setFaces([]); setScanned(true); return; }
     setFaces(null);
     fetch("/api/faces/one?path=" + encodeURIComponent(path))
@@ -402,6 +422,18 @@ function PhotoFacesPanel({ path, people, onChanged, idSuffix = "" }) {
     await fetch("/api/faces/assign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, index: face.index, name: (value || "").trim() }) }).catch(() => {});
     onChanged && onChanged();
   }
+  // a rescan (or a fresh known-people list) can correctly auto-match a face to someone already named —
+  // that match is shown as a pre-filled name, but previously only got SAVED if the user happened to
+  // retype the already-correct text on blur. Persist genuine matches immediately instead, same fix as
+  // the folder-level scan grid (loadAndCluster/syncCluster above).
+  usePE(() => {
+    if (!faces || !faces.length || !known || !known.length) return;
+    for (const f of faces) {
+      if (f.personId || autoSyncedRef.current.has(f.index)) continue;
+      const m = matchPerson(f.descriptor, known);
+      if (m) { autoSyncedRef.current.add(f.index); assign(f, m.name); }
+    }
+  }, [faces, known]);
   // re-detect THIS photo on demand (uses the current, higher-recall settings) so a missed face can be recovered here
   async function rescan() {
     setRescanning(true); setScanErr(null);
@@ -410,6 +442,7 @@ function PhotoFacesPanel({ path, people, onChanged, idSuffix = "" }) {
       const payload = await detectFaces(faceapi, path);
       const r = await fetch("/api/faces", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, mtime: mtimeRef.current, faces: payload }) });
       if (!r.ok) throw new Error("Couldn't save faces (" + r.status + ")");
+      autoSyncedRef.current = new Set();   // fresh detection reuses index 0..N-1 — don't treat them as already-synced
       setFaces(payload.map((f, i) => ({ index: i, box: f.box, descriptor: f.descriptor, personId: null, name: null })));
       setScanned(true);
       onChanged && onChanged();

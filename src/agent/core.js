@@ -10,7 +10,7 @@ const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 const exifr = require("exifr");
-const { OLLAMA_MODEL, OLLAMA_KEEP_ALIVE } = require("../config");
+const { OLLAMA_MODEL, OLLAMA_KEEP_ALIVE, COMFYUI_URL } = require("../config");
 const ollamaConn = require("../llm/ollama-conn");
 const { kindOf, extOf, fmtSize, fmtDate, TEXTLIKE, isImageFile, safeName } = require("../util/files");
 const { stripThink, fitCtx, snippetFor, buildProvenance } = require("../util/text");
@@ -24,8 +24,9 @@ const { relatedFor } = require("../media/phash");
 const { graphRetrieve, docExcerptsFor, reverseGeocode, graphFor, graphCache } = require("../media/graph");
 const { faceDist, personDescs } = require("../media/photos");
 const { dtGenerate, dtEdit, dtEcho } = require("../media/drawthings");
+const { cfGenerate, cfEdit, cfEcho } = require("../media/comfyui");
 const { saveGeneratedImage } = require("../media/image-prompt");
-const { describeImage } = require("../llm/vision");
+const { describeImage, answerAboutImage } = require("../llm/vision");
 const { completeJSON, completeText } = require("../llm/ollama");
 const { providerOf: modelProviderOf, bareModel: routedBareModel, completeJSON: routedCompleteJSON, completeText: routedCompleteText } = require("../llm/router");
 const providerLLM = require("../llm/providers");
@@ -51,8 +52,8 @@ async function findFileOnDisk(ctx, name) {
 async function ensureIndex(ctx) {
   if (ctx.fresh) return;
   try {
-    if (ctx.files) await indexFiles(ctx.key, ctx.files);   // selection scope: index exactly those files
-    else ctx.isFile ? await buildFileIndex(ctx.path) : await buildIndex(ctx.path);
+    if (ctx.files) await indexFiles(ctx.key, ctx.files, ctx.embedModel);   // selection scope: index exactly those files
+    else ctx.isFile ? await buildFileIndex(ctx.path, ctx.embedModel) : await buildIndex(ctx.path, ctx.embedModel);
   } catch {}
   ctx.fresh = true;
 }
@@ -194,7 +195,7 @@ const TOOL_REGISTRY = {
     run: async (args, ctx) => {
       await ensureIndex(ctx);
       const q0 = String(args.query || "");
-      let hits = (await retrieve(ctx.key, q0, 8)).hits.filter(h => h.score >= 0.4);
+      let hits = (await retrieve(ctx.key, q0, 8, { rerankModel: ctx.rerankModel })).hits.filter(h => h.score >= 0.4);
       // corrective pass (CRAG-lite): weak retrieval → rephrase the query once and merge the second round
       let rephrased = "";
       if (!hits.length || hits[0].score < 0.5) {
@@ -205,7 +206,7 @@ const TOOL_REGISTRY = {
           const q1 = j && String(j.query || "").trim();
           if (q1 && q1.toLowerCase() !== q0.toLowerCase()) {
             rephrased = q1;
-            const more = (await retrieve(ctx.key, q1, 8)).hits.filter(h => h.score >= 0.4);
+            const more = (await retrieve(ctx.key, q1, 8, { rerankModel: ctx.rerankModel })).hits.filter(h => h.score >= 0.4);
             const seen = new Set(hits.map(h => h.path + "|" + h.text.slice(0, 60)));
             for (const h of more) { const key = h.path + "|" + h.text.slice(0, 60); if (!seen.has(key)) { hits.push(h); seen.add(key); } }
             hits.sort((a, b) => b.score - a.score);
@@ -222,11 +223,26 @@ const TOOL_REGISTRY = {
       const graphHits = gr.hits.filter(h => { const k = (h.path || h.name) + "|" + h.text.slice(0, 60); if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
 
       const sources = [...hits, ...graphHits].map(h => ({ name: h.name, path: h.path, score: h.score }));
+      // sufficiency check (CRAG-lite continued): a borderline match can be topically related without
+      // actually answering the question (right entity type, wrong specific entity/subject) — ask the
+      // same cheap model whether the top excerpts truly address the question before handing them off,
+      // so a downstream drafter gets a loud, specific warning instead of a generic disclaimer it can tune out.
+      let weakMatch = false;
+      if (hits.length && hits[0].score < 0.55) {
+        try {
+          const j = await routedCompleteJSON(ctx.model || OLLAMA_MODEL,
+            'Judge whether the EXCERPTS actually answer the QUESTION — not just share its topic or entity type. Reply ONLY {"sufficient":true|false}.',
+            `QUESTION: ${q0}\n\nEXCERPTS:\n${hits.slice(0, 3).map(h => h.text.slice(0, 300)).join("\n---\n")}`, 20);
+          weakMatch = j && j.sufficient === false;
+        } catch {}
+      }
       let text;
       if (!hits.length && !graphHits.length) text = "No relevant content found in the documents.";
       else {
         const parts = [];
-        if (hits.length) parts.push("Most similar excerpts (verify they concern your exact subject before using):\n\n" +
+        if (hits.length) parts.push((weakMatch
+            ? "⚠️ These are the closest excerpts found, but they may NOT actually answer the question (they could be about a different subject that just shares a topic). Do not present them as a confident answer — say so if they don't clearly address it:\n\n"
+            : "Most similar excerpts (verify they concern your exact subject before using):\n\n") +
           hits.map(h => `SOURCE: ${h.name}\n${h.text}`).join("\n\n---\n\n"));
         if (graphHits.length) parts.push(`Related via the knowledge graph — documents connected to ${gr.entities.map(e => e.label).join(", ")}:\n\n` +
           graphHits.map(h => `SOURCE: ${h.name}\n${h.text}`).join("\n\n---\n\n"));
@@ -234,7 +250,7 @@ const TOOL_REGISTRY = {
       }
       const uniq = [...new Set([...hits, ...graphHits].map(h => h.name))];
       const gnote = graphHits.length ? ` +${graphHits.length} via graph (${gr.entities.map(e => e.label).slice(0, 3).join(", ")})` : "";
-      return { result: text, sources, summary: (hits.length || graphHits.length) ? `${hits.length} matches in ${uniq.join(", ")}${gnote}${rephrased ? ` (auto-rephrased: "${rephrased.slice(0, 60)}")` : ""}` : `no relevant matches${rephrased ? ` (also tried: "${rephrased.slice(0, 60)}")` : ""}` };
+      return { result: text, sources, summary: (hits.length || graphHits.length) ? `${hits.length} matches in ${uniq.join(", ")}${gnote}${rephrased ? ` (auto-rephrased: "${rephrased.slice(0, 60)}")` : ""}${weakMatch ? " (uncertain match)" : ""}` : `no relevant matches${rephrased ? ` (also tried: "${rephrased.slice(0, 60)}")` : ""}` };
     },
   },
   find_text: {
@@ -357,7 +373,7 @@ const TOOL_REGISTRY = {
   save_note: {
     def: { type: "function", function: {
       name: "save_note",
-      description: "Save a note, summary, answer, or generated data into the knowledge base so it's kept and searchable later. Use when the user asks to save, remember, note, jot down, or take notes on something. Defaults to a Markdown note; if `title` ends in .csv/.json/.txt AND `text` is actually in that format, it's saved as a real file of that type (raw, not wrapped in Markdown) so tools like query_csv can use it and it shows with the right file type.",
+      description: "Save a NEW note, summary, or generated data into the knowledge base so it's kept and searchable later. Use when the user asks to save, note, jot down, or take notes on something. Before calling this, consider whether a note on this exact topic already exists (the user is continuing/updating an earlier save, or search_docs/find_text turned one up when you looked into their files) — if so, use manage_file (append/overwrite) on that existing note instead of creating a duplicate with this tool. Defaults to a Markdown note; if `title` ends in .csv/.json/.txt AND `text` is actually in that format, it's saved as a real file of that type (raw, not wrapped in Markdown) so tools like query_csv can use it and it shows with the right file type.",
       parameters: { type: "object", properties: {
         title: { type: "string", description: "The note's title. Give it a .csv/.json/.txt extension ONLY if `text` is genuinely raw data in that format — otherwise leave it as a plain title and it's saved as a Markdown note." },
         text: { type: "string", description: "The content. For a Markdown note: written in full and well-structured — a short intro, ## sections, bullet/numbered lists, the key facts, decisions, names, numbers and their sources, and a closing summary or action items. Be thorough, not a one-liner. For .csv/.json/.txt: the raw file content, nothing else." },
@@ -393,8 +409,8 @@ const TOOL_REGISTRY = {
   image_tool: {
     def: { type: "function", function: {
       name: "image_tool",
-      description: "Work with an image. action 'describe' uses the vision model to SEE and describe what's in the image (use this to answer questions about a photo/screenshot, including reading text in it). action 'exif' returns its date taken, camera, and GPS.",
-      parameters: { type: "object", properties: { action: { type: "string", enum: ["describe", "exif"] }, name: { type: "string" } }, required: ["action", "name"] },
+      description: "Work with an image. action 'describe' uses the vision model to SEE and describe what's in the image (use this to answer questions about a photo/screenshot, including reading text in it). If the user asked about a SPECIFIC detail (e.g. \"how does the right apple look\", \"what does the sign say\", \"what color is her jacket\"), pass that as 'question' so the vision model focuses on just that instead of writing a full generic description — much more accurate for specific questions. Omit 'question' for a general \"what's in this image\" description. action 'exif' returns its date taken, camera, and GPS.",
+      parameters: { type: "object", properties: { action: { type: "string", enum: ["describe", "exif"] }, name: { type: "string" }, question: { type: "string", description: "Optional, for action 'describe' only: the specific question or detail to focus on. Omit for a general description." } }, required: ["action", "name"] },
     } },
     run: async (args, ctx) => {
       const fp = await resolveImageRef(args.name, ctx);
@@ -411,32 +427,51 @@ const TOOL_REGISTRY = {
         return { result: `EXIF for ${path.basename(fp)}:\ncamera: ${camera || "?"}\ntaken: ${taken ? new Date(taken).toLocaleString() : "?"}\ngps: ${gps}`, summary: "got EXIF", sources: [{ name: path.basename(fp), path: fp, score: 1 }] };
       }
       try {
-        const m = await describeImage(fp, (imageMeta[fp] && imageMeta[fp].context) || "");
-        return { result: `Description of ${path.basename(fp)}:\n${m.description}`, sources: [{ name: path.basename(fp), path: fp, score: 1 }], summary: `described ${path.basename(fp)}` };
+        const m = args.question
+          ? await answerAboutImage(fp, args.question)
+          : await describeImage(fp, (imageMeta[fp] && imageMeta[fp].context) || "");
+        const label = args.question ? `Answer for ${path.basename(fp)}` : `Description of ${path.basename(fp)}`;
+        return { result: `${label}:\n${m.description}`, sources: [{ name: path.basename(fp), path: fp, score: 1 }], summary: args.question ? `answered about ${path.basename(fp)}` : `described ${path.basename(fp)}` };
       } catch (e) { return { result: `Could not analyze image: ${e.message}`, summary: "error" }; }
     },
   },
   generate_image: {
     def: { type: "function", function: {
       name: "generate_image",
-      description: "Generate a NEW image from a text prompt using the user's LOCAL Draw Things image model. Use whenever the user asks you to create / generate / draw / make / render an image, illustration, picture, logo, icon, or piece of art from a description. Write a vivid, detailed prompt (subject, style, lighting, composition). The image is saved to the knowledge base and shown inline — do NOT describe it in words instead of calling this.",
+      description: "Generate a NEW image from a text prompt using the user's LOCAL image model (ComfyUI by default, or Draw Things if the user has switched to it in Settings). Use whenever the user asks you to create / generate / draw / make / render an image, illustration, picture, logo, icon, or piece of art from a description. Write a vivid, detailed prompt (subject, style, lighting, composition). The image is saved to the knowledge base and shown inline — do NOT describe it in words instead of calling this.",
       parameters: { type: "object", properties: {
         prompt: { type: "string", description: "Detailed description of the image to generate." },
         negative_prompt: { type: "string", description: "What to avoid in the image (optional)." },
         width: { type: "integer", description: "Pixel width, multiple of 64 (default from the user's settings)." },
         height: { type: "integer", description: "Pixel height, multiple of 64 (default from the user's settings)." },
-        model: { type: "string", description: "Optional model filename override (otherwise the user's default / first installed model)." },
+        model: { type: "string", description: "Optional model/checkpoint filename override (otherwise the user's default / first installed model)." },
+        quality: { type: "string", enum: ["fast", "best"], description: "ComfyUI only. 'fast' (default) generates in seconds. 'best' uses the higher-quality Flux model and takes several minutes — only use it when the user explicitly asks for higher quality/detail, says to take your time, or is clearly unhappy with a 'fast' result." },
       }, required: ["prompt"] },
     } },
     run: async (args, ctx) => {
-      const cfg = dtSettings(ctx);
       const d = ctx.imageDefaults || {};   // steps / guidance come from the user's Settings, not the model
+      const quality = args.quality === "best" ? "best" : args.quality === "fast" ? "fast" : (d.quality === "best" ? "best" : "fast");
+      const width = args.width || (quality === "best" ? 1024 : d.width) || 512;
+      const height = args.height || (quality === "best" ? 1024 : d.height) || 512;
       try {
-        const model = await dtPickModel(cfg, args.model);
-        const { images } = await dtGenerate({ url: cfg.url, sharedSecret: cfg.sharedSecret, model,
-          prompt: args.prompt, negativePrompt: args.negative_prompt,
-          width: args.width || d.width || 512, height: args.height || d.height || 512,
-          steps: d.steps || 4, guidanceScale: d.guidance != null ? d.guidance : 1.5 });
+        let images, model;
+        if (ctx.imageBackend === "drawthings") {
+          const cfg = dtSettings(ctx);
+          model = await dtPickModel(cfg, args.model);
+          ({ images } = await dtGenerate({ url: cfg.url, sharedSecret: cfg.sharedSecret, model,
+            prompt: args.prompt, negativePrompt: args.negative_prompt, width, height,
+            steps: d.steps || 4, guidanceScale: d.guidance != null ? d.guidance : 1.5 }));
+        } else if (quality === "best") {
+          const cfg = comfySettings(ctx);
+          model = "Flux.2 Klein";
+          ({ images } = await cfGenerate({ url: cfg.url, quality: "best",
+            prompt: args.prompt, width, height }));
+        } else {
+          const cfg = comfySettings(ctx);
+          model = await cfPickModel(cfg, args.model);
+          ({ images } = await cfGenerate({ url: cfg.url, model,
+            prompt: args.prompt, negativePrompt: args.negative_prompt, width, height }));
+        }
         const paths = [];
         for (const im of images) paths.push(await dtSaveImage(ctx, im.png, args.prompt));
         return { result: `Generated ${paths.length} image${paths.length === 1 ? "" : "s"} with ${model} (saved to the knowledge base under generated/). Showing ${paths.length === 1 ? "it" : "them"} below.`,
@@ -447,29 +482,48 @@ const TOOL_REGISTRY = {
   edit_image: {
     def: { type: "function", function: {
       name: "edit_image",
-      description: "Edit / transform an EXISTING image (image-to-image) with the user's local Draw Things model — restyle, alter, or reimagine a photo the user attached to this chat or has in their library. The source image is loaded as the base and regenerated with your change applied. Provide the image's name and a prompt describing the desired result.",
+      description: "Edit / transform an EXISTING image (image-to-image) with the user's local image model (ComfyUI by default, or Draw Things if the user has switched to it in Settings) — restyle, alter, or reimagine a photo the user attached to this chat or has in their library. The source image is loaded as the base and regenerated with your change applied. Provide the image's name and a prompt describing the desired result.",
       parameters: { type: "object", properties: {
         name: { type: "string", description: "Name of the image to edit — an attached/pasted image, a library photo, or a file path." },
         prompt: { type: "string", description: "Describe the edited result you want." },
         negative_prompt: { type: "string", description: "What to avoid (optional)." },
-        model: { type: "string", description: "Optional model filename override." },
+        model: { type: "string", description: "Optional model/checkpoint filename override." },
+        quality: { type: "string", enum: ["fast", "best"], description: "ComfyUI only. 'fast' (default) edits in seconds but drifts from the source more. 'best' uses Flux to precisely edit just what the prompt asks for while keeping everything else identical — takes several minutes. Prefer 'best' when the user needs the rest of the image to stay unchanged, or explicitly asks for higher quality / to take your time." },
       }, required: ["name", "prompt"] },
     } },
     run: async (args, ctx) => {
-      const cfg = dtSettings(ctx);
       const d = ctx.imageDefaults || {};   // strength / steps / guidance come from the user's Settings, not the model
+      const quality = args.quality === "best" ? "best" : args.quality === "fast" ? "fast" : (d.quality === "best" ? "best" : "fast");
       try {
         const fp = await resolveImageRef(args.name, ctx);
         if (!fp) {
           const attached = (ctx.convoImages || []).map(im => im.name).filter(Boolean);
           return { result: `No image named "${args.name}" found to edit.` + (attached.length ? ` Images attached to this chat: ${attached.join(", ")}.` : " Ask the user to attach one, or name a library photo."), summary: "not found" };
         }
-        const model = await dtPickModel(cfg, args.model);
         const imageBuffer = await fsp.readFile(fp);
-        const { images } = await dtEdit({ url: cfg.url, sharedSecret: cfg.sharedSecret, model,
-          prompt: args.prompt, negativePrompt: args.negative_prompt, imageBuffer,
-          strength: d.strength != null ? d.strength : 0.99, steps: d.steps || 4,
-          guidanceScale: d.guidance != null ? d.guidance : 1.5, maxDim: d.maxDim != null ? d.maxDim : 1024 });
+        let images, model;
+        if (ctx.imageBackend === "drawthings") {
+          const cfg = dtSettings(ctx);
+          model = await dtPickModel(cfg, args.model);
+          ({ images } = await dtEdit({ url: cfg.url, sharedSecret: cfg.sharedSecret, model,
+            prompt: args.prompt, negativePrompt: args.negative_prompt, imageBuffer,
+            strength: d.strength != null ? d.strength : 0.99, steps: d.steps || 4,
+            guidanceScale: d.guidance != null ? d.guidance : 1.5, maxDim: d.maxDim != null ? d.maxDim : 1024 }));
+        } else if (quality === "best") {
+          const cfg = comfySettings(ctx);
+          model = "Flux.2 Klein";
+          ({ images } = await cfEdit({ url: cfg.url, quality: "best", prompt: args.prompt, imageBuffer }));
+        } else {
+          const cfg = comfySettings(ctx);
+          model = await cfPickModel(cfg, args.model);
+          // the Settings "edit strength" slider was tuned for Draw Things' fast/LCM sampler, where even
+          // 0.99 still stays close to the source at 4 steps. ComfyUI's plain SD1.x img2img denoises much
+          // more aggressively at the same value with a normal step count, so rescale into its useful range.
+          const denoise = Math.max(0.1, Math.min(0.85, (d.strength != null ? d.strength : 0.99) * 0.7));
+          ({ images } = await cfEdit({ url: cfg.url, model,
+            prompt: args.prompt, negativePrompt: args.negative_prompt, imageBuffer,
+            strength: denoise, maxDim: d.maxDim != null ? d.maxDim : 1024 }));
+        }
         const paths = [];
         for (const im of images) paths.push(await dtSaveImage(ctx, im.png, args.prompt || ("edit of " + path.basename(fp))));
         return { result: `Edited ${path.basename(fp)} into ${paths.length} new image${paths.length === 1 ? "" : "s"} (saved under generated/). Showing below.`,
@@ -783,7 +837,7 @@ const TOOL_REGISTRY = {
   manage_file: {
     def: { type: "function", function: {
       name: "manage_file",
-      description: "Perform a file action ONLY when the user explicitly asks: open (show in viewer), rename, delete, tag, or EDIT a text file (append text, overwrite it, or find-and-replace).",
+      description: "Perform a file action ONLY when the user explicitly asks: open (show in viewer), rename, delete, tag, or EDIT a text file (append text, overwrite it, or find-and-replace). Also use 'append'/'overwrite' to UPDATE an existing note that already covers the topic you're about to save (instead of creating a duplicate via save_note) — append to add new information, overwrite to correct/replace it.",
       parameters: { type: "object", properties: {
         action: { type: "string", enum: ["open", "rename", "delete", "tag", "append", "overwrite", "replace"] },
         name: { type: "string" },
@@ -907,6 +961,7 @@ function agentSys(domainLabel, autoMem = true, web = false, deep = false, user =
     "When a request needs the user's files, immediately call the appropriate tool to do it — do NOT describe your capabilities or list what you can do; just perform the task. " +
     "Use search_docs to find content, find_text for an exact string, query_csv for spreadsheet math, read_file/read_section to read a document, extract_table to pull fields from many documents into a table, find_photos_of to find photos of a named person (face recognition); " +
     "only rename, delete, tag, save, or open when the user explicitly asks. " +
+    "NOTES — UPDATE VS. CREATE: before calling save_note, consider whether a note on this exact topic already exists — the user says 'update'/'add to' my note, is clearly continuing something saved earlier in this conversation, or a search you already ran turned up an existing note squarely on the same subject. If so, call manage_file (action 'append' to add new info, 'overwrite' to correct/replace it) on that note instead of creating a duplicate. If you're not sure whether one exists, a quick search_docs/find_text for the topic before saving is cheap insurance. Only use save_note when no matching note exists. " +
     "GROUNDING & HONESTY: First decide whether the question is actually about the user's files/data, or is a general question. " +
     "If the question plausibly concerns things people keep in documents — policies, budgets, invoices, people, teams, dates, amounts — run search_docs FIRST and only fall back to general knowledge if nothing relevant is found. " +
     "For general questions — or anything not about their files — answer fully and directly from your own knowledge; do NOT refuse, do NOT say it isn't in the files, and do NOT force a document search. Grounding is only needed when the question is about the user's own files/data. " +
@@ -1018,7 +1073,7 @@ async function deepResearchPipeline({ q, history, urls = [], chosen, ctx, write,
       evidence += results.map(r => `- ${r.title} (${r.url}): ${r.snippet}`).join("\n") + readText;
     }
     if (files) try {   // search the user's own files for this sub-topic ("Use my documents" must be on)
-      const fr = await retrieve(ctx.key, sub, 8);
+      const fr = await retrieve(ctx.key, sub, 8, { rerankModel: ctx.rerankModel });
       const fh = (fr.hits || []).filter(h => h.score >= 0.4);
       fh.forEach(h => { evidence += `\n\n[file: ${h.name}]\n${h.text.slice(0, 1600)}`; if (h.path) sourceMap.set("file://" + h.path, h.name); });
       count += fh.length;
@@ -1494,6 +1549,26 @@ async function dtPickModel(cfg, explicit) {
   if (!models.length) throw new Error("Draw Things is reachable but no base model was found. Set a model name in Settings → Image generation. Files the server reports: " + ((echo.files || []).slice(0, 15).join(", ") || "none"));
   return models[0];
 }
+// ---- ComfyUI image-generation helpers (default active backend) ----
+// The endpoint/default-checkpoint ride in on ctx.comfy (set from the request body in server.js,
+// sourced from the client's saved Settings — same path as ctx.drawThings).
+function comfySettings(ctx) {
+  const d = ctx.comfy || {};
+  return { url: d.url || COMFYUI_URL, defaultModel: d.model || "" };
+}
+// Resolve a checkpoint filename: explicit arg → saved default → discover from the server's checkpoint
+// list. ComfyUI has no "currently loaded model" concept (every request names its own), and its
+// checkpoint folder can hold checkpoints our plain txt2img/img2img graph can't drive: non-image
+// models (audio/video checkpoints share the same .safetensors extension) and inpainting-specialized
+// checkpoints (need mask conditioning our graph doesn't provide — wrong latent shape otherwise).
+async function cfPickModel(cfg, explicit) {
+  if (explicit && String(explicit).trim()) return String(explicit).trim();
+  if (cfg.defaultModel) return cfg.defaultModel;
+  const echo = await cfEcho({ url: cfg.url });
+  const models = (echo.files || []).filter(f => !/audio|ace[_-]?step|inpaint/i.test(f));
+  if (!models.length) throw new Error("ComfyUI is reachable but no image checkpoint was found. Set a checkpoint filename in Settings → Image generation. Files the server reports: " + ((echo.files || []).slice(0, 15).join(", ") || "none"));
+  return models[0];
+}
 // Save a generated PNG into <kb>/generated/ (browsable in the gallery); not auto-indexed (vision is slow).
 // Shared with the direct /api/image routes via saveGeneratedImage (src/media/image-prompt.js).
 const dtSaveImage = (ctx, png, label) => saveGeneratedImage(ctx.kbDir, png, label);
@@ -1511,11 +1586,14 @@ async function resolveImageRef(photoRef, ctx) {
   const refLc = ref.toLowerCase();
   const generic = !ref || /^(this|that|the|it|attached)\b/.test(refLc) || refLc === "photo" || refLc === "image" || refLc === "picture";
   const convo = ctx.convoImages || [];
-  // 1) chat-attached/pasted images — by name, else (generic/blank ref) the most recent attachment
+  // 1) chat-attached/pasted images — by name, else (generic/blank ref) the most recent attachment.
+  // Search from the newest end: older chats (or names a user typed by hand) can still have two
+  // images sharing one display name, and the newest one is the far more likely intent — e.g. "look
+  // at image.png" right after pasting a second image named the same as an earlier one in the chat.
   if (convo.length) {
     let m = null;
-    if (ref && !generic) m = convo.find(im => (im.name || "").toLowerCase() === refLc)
-      || convo.find(im => { const n = (im.name || "").toLowerCase(); return n && (n.includes(refLc) || refLc.includes(n)); });
+    if (ref && !generic) m = convo.findLast(im => (im.name || "").toLowerCase() === refLc)
+      || convo.findLast(im => { const n = (im.name || "").toLowerCase(); return n && (n.includes(refLc) || refLc.includes(n)); });
     if (!m && generic) m = convo[convo.length - 1];
     if (m) { const mat = materializeChatImage(ctx.kbDir, m); if (mat && isImageFile(mat.path)) return mat.path; }
   }

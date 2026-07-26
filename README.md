@@ -31,7 +31,7 @@ Heap Chat isn't trying to be a smaller ChatGPT — it's built around a different
 | Memory that reflects, decays, and learns a profile of you | Shallow flat facts | No | **Yes** — typed memory, episodic reflection, auto-built profile |
 | Knowledge graph over your own files | No | No | **Yes** — people, places, tags, and documents fused, LLM-free |
 | Photo-native (face recognition, geotag map, visual dedup) | No | No | **Yes** |
-| Local image generation tied into chat | Hosted API only | No | **Yes** — via Draw Things, fully offline |
+| Local image generation tied into chat | Hosted API only | No | **Yes** — via ComfyUI or Draw Things, fully offline |
 | Multi-user with server-enforced, per-folder access control | N/A (single-user) | Yes | **Yes** |
 | Background agent jobs on a schedule | No | No | **Yes** — digests to feed/note/notification |
 | MCP client *and* server | Varies | Client only | **Both** |
@@ -125,7 +125,7 @@ Where Heap Chat is still catching up: it doesn't yet have voice conversation, a 
 
 ### Local image generation
 
-- **Create and edit images entirely offline** via a local [Draw Things](https://drawthings.ai) server — no cloud image API involved. Use the `/image-create` and `/image-edit` slash commands in chat, or the **Edit with AI** button on any generated image or gallery photo. *(Experimental / Beta.)*
+- **Create and edit images entirely offline** via a local [ComfyUI](https://github.com/comfyanonymous/ComfyUI) server (default) or [Draw Things](https://drawthings.ai) — no cloud image API involved. Use the `/image-create` and `/image-edit` slash commands in chat, or the **Edit with AI** button on any generated image or gallery photo. *(Experimental / Beta.)*
 
 ### Integrations
 

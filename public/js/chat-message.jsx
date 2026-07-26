@@ -14,13 +14,21 @@ import { Icon, kindFromName, thumbUrl, fileUrl } from "./icons.jsx";
    and helpers (Icon, kindFromName, thumbUrl) resolve as globals at render time.
    The message index `i` is still needed (editMsg/decideAction take it). */
 
-function ChatMessage({ m, i, isLast, busy, onOpenPath, editMsg, decideAction, copyMsg, downloadMsg, regenerate, onEditImage, onImageAction }) {
+function ChatMessage({ m, i, isLast, busy, onOpenPath, editMsg, decideAction, copyMsg, downloadMsg, regenerate, onEditImage, onImageAction, onZoomImage }) {
   if (m.role === "user") {
+    const promptImgs = m.images && m.images.length > 0 ? m.images.map(im => ({ image: im.url, title: im.name }))
+      : m.image ? [{ image: m.image, title: "attachment" }] : null;
     return (
       <div className="msg user">
-        {m.images && m.images.length > 0
-          ? <div className="msg-attach-grid">{m.images.map((im, k) => <img key={k} src={im.url} alt={im.name || "attachment"} className="msg-attach" />)}</div>
-          : m.image && <img src={m.image} alt="attachment" className="msg-attach" />}
+        {promptImgs && (
+          <div className="msg-attach-grid">
+            {promptImgs.map((im, k) => (
+              <img key={k} src={im.image} alt={im.title || "attachment"} className="msg-attach"
+                style={{ cursor: onZoomImage ? "zoom-in" : undefined }}
+                onClick={() => onZoomImage && onZoomImage(promptImgs, k)} />
+            ))}
+          </div>
+        )}
         {m.attachments && m.attachments.length > 0 && (
           <div className="att-chips">
             {m.attachments.map((n, k) => <span key={k} className="att-chip"><Icon name="file" size={12} sw={1.8} /> <span className="truncate">{n}</span></span>)}
@@ -90,7 +98,7 @@ function ChatMessage({ m, i, isLast, busy, onOpenPath, editMsg, decideAction, co
           )}
         </>;
       })()}
-      {m.renders && m.renders.map((spec, k) => <RenderBlock key={k} spec={spec} onEditImage={onEditImage} />)}
+      {m.renders && m.renders.map((spec, k) => <RenderBlock key={k} spec={spec} onEditImage={onEditImage} onZoomImage={onZoomImage} />)}
       {m.imageCmd && onImageAction && !m.streaming && (
         <div className="row gap-2" style={{ marginTop: 6 }}>
           <button className="btn xs ghost" onClick={() => onImageAction(i, "regen")} disabled={busy}><Icon name="refresh" size={12} /> Regenerate</button>

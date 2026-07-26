@@ -9,6 +9,8 @@ const DEFAULT_SETTINGS = {
   provider: "ollama",
   model: "",
   agentModel: "",
+  embedModel: "",
+  rerankModel: "",
   endpoint: "",
   thinking: false,
   factCheck: true,
@@ -17,11 +19,15 @@ const DEFAULT_SETTINGS = {
   webSearch: false,
   placeLookup: false,
   autoExtract: false,
-  imageGen: false,                 // enable the generate_image / edit_image tools (local Draw Things HTTP API)
+  imageGen: false,                 // enable the generate_image / edit_image tools
+  imageBackend: "comfyui",         // "comfyui" (default) | "drawthings"
+  comfyUrl: "http://localhost:8000",
+  comfyModel: "",                  // optional default checkpoint filename; blank = auto-pick
+  imageQuality: "fast",            // ComfyUI only: "fast" (SD, seconds) | "best" (Flux, minutes) — the agent can still ask for the other explicitly per request
   drawThingsUrl: "http://localhost:7860",
   drawThingsModel: "",             // optional default model; blank = use the model loaded in the app
   drawThingsSecret: "",            // optional shared secret if the server requires one
-  imageSteps: 4,                   // sampling steps for create + edit (FLUX-fast models do well at 4)
+  imageSteps: 4,                   // sampling steps for create + edit (FLUX-fast models do well at 4; ComfyUI ignores this and uses its own default)
   imageGuidance: 1.5,              // guidance scale (low suits FLUX)
   imageWidth: 512,                 // default canvas size for /image-create (multiple of 64)
   imageHeight: 512,
@@ -452,11 +458,16 @@ function AccountSection({ account }) {
 
 function ImageGenSection({ settings, set }) {
   const [test, setTest] = React.useState(null);   // null | {testing} | {ok, models, error}
+  const backend = settings.imageBackend === "drawthings" ? "drawthings" : "comfyui";
   async function runTest() {
     setTest({ testing: true });
-    const r = await fetch("/api/drawthings/test", {
+    const endpoint = backend === "drawthings" ? "/api/drawthings/test" : "/api/comfyui/test";
+    const body = backend === "drawthings"
+      ? { url: settings.drawThingsUrl, secret: settings.drawThingsSecret }
+      : { url: settings.comfyUrl };
+    const r = await fetch(endpoint, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: settings.drawThingsUrl, secret: settings.drawThingsSecret }),
+      body: JSON.stringify(body),
     }).then(r => r.json()).catch(() => ({ ok: false, error: "request failed" }));
     setTest({ testing: false, ...r });
   }
@@ -466,8 +477,7 @@ function ImageGenSection({ settings, set }) {
         <Icon name="image" size={18} style={{ color: "var(--accent)" }} /> Image generation
         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--accent)", background: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: 999, padding: "2px 8px" }}>Experimental · Beta</span>
       </div>
-      <div className="set-sub">Let the agent create and edit images with a local <b>Draw Things</b> server. In the app, turn on <span className="mono">Advanced → API Server</span> with <b>Protocol: HTTP</b> (default port 7860). Adds the <span className="mono">generate_image</span> and <span className="mono">edit_image</span> tools. Fully local — nothing leaves your machine.</div>
-      <div className="set-sub" style={{ color: "var(--warn)" }}><b>Beta:</b> edit quality depends on Draw Things, which can't clear its canvas over the API — results may vary. A deeper pipeline (e.g. ComfyUI) may replace this later.</div>
+      <div className="set-sub">Let the agent create and edit images with a local image server — <b>ComfyUI</b> (default) or <b>Draw Things</b>. Adds the <span className="mono">generate_image</span> and <span className="mono">edit_image</span> tools. Fully local — nothing leaves your machine.</div>
 
       <div className="row-set">
         <div className="col" style={{ gap: 3 }}>
@@ -480,50 +490,108 @@ function ImageGenSection({ settings, set }) {
       {settings.imageGen && (
         <>
           <div className="field" style={{ marginTop: 18 }}>
-            <span className="field-label">Draw Things HTTP endpoint</span>
-            <div className="row gap-2" style={{ alignItems: "center" }}>
-              <input className="input mono" style={{ maxWidth: 320, fontSize: 13 }} placeholder="http://localhost:7860"
-                value={settings.drawThingsUrl || ""} onChange={e => set({ drawThingsUrl: e.target.value })} />
-              <button className="btn sm" onClick={runTest} disabled={test && test.testing}>
-                <Icon name={test && test.testing ? "clock" : "refresh"} size={13} /> {test && test.testing ? "Testing…" : "Test connection"}
-              </button>
+            <span className="field-label">Backend</span>
+            <div className="row gap-2" style={{ marginTop: 4 }}>
+              <button className={"btn sm" + (backend === "comfyui" ? " primary" : "")} onClick={() => { setTest(null); set({ imageBackend: "comfyui" }); }}>ComfyUI</button>
+              <button className={"btn sm" + (backend === "drawthings" ? " primary" : "")} onClick={() => { setTest(null); set({ imageBackend: "drawthings" }); }}>Draw Things</button>
             </div>
-            {test && !test.testing && test.ok && (
-              <span className="t-xs" style={{ color: "var(--good)" }}>
-                ✓ Connected{test.models && test.models.length ? ` · ${test.models.length} model(s): ${test.models.slice(0, 8).join(", ")}` : " · no models reported"}
-              </span>
-            )}
-            {test && !test.testing && !test.ok && <span className="t-xs" style={{ color: "var(--warn)" }}>✗ {test.error || "unreachable"}</span>}
-            {test && !test.testing && test.sharedSecretMissing && <span className="t-xs" style={{ color: "var(--warn)" }}>Server requires a shared secret — set it below.</span>}
           </div>
 
-          <div className="field">
-            <span className="field-label">Default model <span className="ink-3">(optional)</span></span>
-            <input className="input mono" style={{ maxWidth: 360, fontSize: 13 }} placeholder="e.g. sd_v1.5_f16.ckpt — blank = auto-pick"
-              value={settings.drawThingsModel || ""} onChange={e => set({ drawThingsModel: e.target.value })} />
-            <span className="field-hint">The model filename as the server knows it (use Test connection to discover names). Blank = use the first installed model.</span>
-          </div>
+          {backend === "comfyui" ? (
+            <>
+              <div className="field">
+                <span className="field-label">ComfyUI server URL</span>
+                <div className="row gap-2" style={{ alignItems: "center" }}>
+                  <input className="input mono" style={{ maxWidth: 320, fontSize: 13 }} placeholder="http://localhost:8000"
+                    value={settings.comfyUrl || ""} onChange={e => set({ comfyUrl: e.target.value })} />
+                  <button className="btn sm" onClick={runTest} disabled={test && test.testing}>
+                    <Icon name={test && test.testing ? "clock" : "refresh"} size={13} /> {test && test.testing ? "Testing…" : "Test connection"}
+                  </button>
+                </div>
+                {test && !test.testing && test.ok && (
+                  <span className="t-xs" style={{ color: "var(--good)" }}>
+                    ✓ Connected{test.models && test.models.length ? ` · ${test.models.length} checkpoint(s): ${test.models.slice(0, 8).join(", ")}` : " · no checkpoints reported"}
+                  </span>
+                )}
+                {test && !test.testing && !test.ok && <span className="t-xs" style={{ color: "var(--warn)" }}>✗ {test.error || "unreachable"}</span>}
+              </div>
 
-          <div className="field">
-            <span className="field-label">Shared secret <span className="ink-3">(optional)</span></span>
-            <input className="input mono" type="password" style={{ maxWidth: 360, fontSize: 13 }} placeholder="only if your server requires one"
-              value={settings.drawThingsSecret || ""} onChange={e => set({ drawThingsSecret: e.target.value })} />
-          </div>
+              <div className="field">
+                <span className="field-label">Default checkpoint <span className="ink-3">(optional)</span></span>
+                <input className="input mono" style={{ maxWidth: 360, fontSize: 13 }} placeholder="e.g. realisticVisionV60B1_v60B1VAE.safetensors — blank = auto-pick"
+                  value={settings.comfyModel || ""} onChange={e => set({ comfyModel: e.target.value })} />
+                <span className="field-hint">The checkpoint filename as ComfyUI knows it (use Test connection to discover names). Blank = the first image checkpoint found.</span>
+              </div>
+
+              <div className="field">
+                <span className="field-label">Quality</span>
+                <div className="row gap-2" style={{ marginTop: 4 }}>
+                  <button className={"btn sm" + ((settings.imageQuality || "fast") === "fast" ? " primary" : "")} onClick={() => set({ imageQuality: "fast" })}>Fast</button>
+                  <button className={"btn sm" + (settings.imageQuality === "best" ? " primary" : "")} onClick={() => set({ imageQuality: "best" })}>Best (Flux)</button>
+                </div>
+                <span className="field-hint">
+                  {(settings.imageQuality || "fast") === "fast"
+                    ? "The default checkpoint above — a few seconds per image."
+                    : "Flux.2 Klein — sharper results and edits that only change what you asked, but takes a few minutes per image."}
+                  {" "}The agent can still ask for the other tier when it makes sense for your request.
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="field">
+                <span className="field-label">Draw Things HTTP endpoint</span>
+                <div className="row gap-2" style={{ alignItems: "center" }}>
+                  <input className="input mono" style={{ maxWidth: 320, fontSize: 13 }} placeholder="http://localhost:7860"
+                    value={settings.drawThingsUrl || ""} onChange={e => set({ drawThingsUrl: e.target.value })} />
+                  <button className="btn sm" onClick={runTest} disabled={test && test.testing}>
+                    <Icon name={test && test.testing ? "clock" : "refresh"} size={13} /> {test && test.testing ? "Testing…" : "Test connection"}
+                  </button>
+                </div>
+                <span className="field-hint">In the app, turn on <span className="mono">Advanced → API Server</span> with <b>Protocol: HTTP</b> (default port 7860).</span>
+                {test && !test.testing && test.ok && (
+                  <span className="t-xs" style={{ color: "var(--good)" }}>
+                    ✓ Connected{test.models && test.models.length ? ` · ${test.models.length} model(s): ${test.models.slice(0, 8).join(", ")}` : " · no models reported"}
+                  </span>
+                )}
+                {test && !test.testing && !test.ok && <span className="t-xs" style={{ color: "var(--warn)" }}>✗ {test.error || "unreachable"}</span>}
+                {test && !test.testing && test.sharedSecretMissing && <span className="t-xs" style={{ color: "var(--warn)" }}>Server requires a shared secret — set it below.</span>}
+              </div>
+
+              <div className="field">
+                <span className="field-label">Default model <span className="ink-3">(optional)</span></span>
+                <input className="input mono" style={{ maxWidth: 360, fontSize: 13 }} placeholder="e.g. sd_v1.5_f16.ckpt — blank = auto-pick"
+                  value={settings.drawThingsModel || ""} onChange={e => set({ drawThingsModel: e.target.value })} />
+                <span className="field-hint">The model filename as the server knows it (use Test connection to discover names). Blank = use the first installed model.</span>
+              </div>
+
+              <div className="field">
+                <span className="field-label">Shared secret <span className="ink-3">(optional)</span></span>
+                <input className="input mono" type="password" style={{ maxWidth: 360, fontSize: 13 }} placeholder="only if your server requires one"
+                  value={settings.drawThingsSecret || ""} onChange={e => set({ drawThingsSecret: e.target.value })} />
+              </div>
+              <div className="set-sub" style={{ color: "var(--warn)" }}><b>Beta:</b> edit quality depends on Draw Things, which can't clear its canvas over the API — results may vary.</div>
+            </>
+          )}
 
           <div className="field">
             <span className="field-label">Generation defaults</span>
             <span className="field-hint">Used by <span className="mono">/image-create</span>, <span className="mono">/image-edit</span>, and the Edit-with-AI dialog. Editing regenerates the image text-to-image, so size follows the source.</span>
             <div className="row gap-3 wrap" style={{ marginTop: 8 }}>
-              <label className="col" style={{ gap: 3 }}>
-                <span className="t-xs ink-3">Steps</span>
-                <input className="input" type="number" min={1} max={150} style={{ width: 90, fontSize: 13 }}
-                  value={settings.imageSteps ?? 4} onChange={e => set({ imageSteps: Math.max(1, Math.min(150, +e.target.value || 4)) })} />
-              </label>
-              <label className="col" style={{ gap: 3 }}>
-                <span className="t-xs ink-3">Guidance</span>
-                <input className="input" type="number" min={0} max={30} step={0.5} style={{ width: 90, fontSize: 13 }}
-                  value={settings.imageGuidance ?? 7.5} onChange={e => set({ imageGuidance: Math.max(0, Math.min(30, +e.target.value || 7.5)) })} />
-              </label>
+              {backend === "drawthings" && (
+                <>
+                  <label className="col" style={{ gap: 3 }}>
+                    <span className="t-xs ink-3">Steps</span>
+                    <input className="input" type="number" min={1} max={150} style={{ width: 90, fontSize: 13 }}
+                      value={settings.imageSteps ?? 4} onChange={e => set({ imageSteps: Math.max(1, Math.min(150, +e.target.value || 4)) })} />
+                  </label>
+                  <label className="col" style={{ gap: 3 }}>
+                    <span className="t-xs ink-3">Guidance</span>
+                    <input className="input" type="number" min={0} max={30} step={0.5} style={{ width: 90, fontSize: 13 }}
+                      value={settings.imageGuidance ?? 7.5} onChange={e => set({ imageGuidance: Math.max(0, Math.min(30, +e.target.value || 7.5)) })} />
+                  </label>
+                </>
+              )}
               <label className="col" style={{ gap: 3 }}>
                 <span className="t-xs ink-3">Width</span>
                 <input className="input" type="number" min={64} max={2048} step={64} style={{ width: 100, fontSize: 13 }}
@@ -535,15 +603,19 @@ function ImageGenSection({ settings, set }) {
                   value={settings.imageHeight ?? 512} onChange={e => set({ imageHeight: Math.max(64, Math.min(2048, Math.round((+e.target.value || 512) / 64) * 64)) })} />
               </label>
             </div>
-            <label className="col" style={{ gap: 3, marginTop: 12, maxWidth: 420 }}>
-              <span className="t-xs ink-3">Edit strength — how much an edit changes the original ({Math.round((settings.imageStrength ?? 0.7) * 100)}%)</span>
-              <div className="row gap-2" style={{ alignItems: "center" }}>
-                <span className="t-xs ink-4" style={{ flex: "none" }}>Keep original</span>
-                <input type="range" min={0.05} max={1} step={0.01} style={{ flex: 1 }}
-                  value={settings.imageStrength ?? 0.7} onChange={e => set({ imageStrength: +e.target.value })} />
-                <span className="t-xs ink-4" style={{ flex: "none" }}>Reimagine</span>
-              </div>
-            </label>
+            {(backend === "comfyui" && settings.imageQuality === "best") ? (
+              <div className="t-xs ink-3" style={{ marginTop: 12, maxWidth: 420 }}>Flux edits precisely apply what you ask for and leave everything else untouched — there's no "strength" knob for this tier.</div>
+            ) : (
+              <label className="col" style={{ gap: 3, marginTop: 12, maxWidth: 420 }}>
+                <span className="t-xs ink-3">Edit strength — how much an edit changes the original ({Math.round((settings.imageStrength ?? 0.7) * 100)}%)</span>
+                <div className="row gap-2" style={{ alignItems: "center" }}>
+                  <span className="t-xs ink-4" style={{ flex: "none" }}>Keep original</span>
+                  <input type="range" min={0.05} max={1} step={0.01} style={{ flex: 1 }}
+                    value={settings.imageStrength ?? 0.7} onChange={e => set({ imageStrength: +e.target.value })} />
+                  <span className="t-xs ink-4" style={{ flex: "none" }}>Reimagine</span>
+                </div>
+              </label>
+            )}
           </div>
 
           <div className="row-set">
@@ -851,6 +923,19 @@ function SettingsPage({ settings, set, onSave, onReset, online, models, account,
             <span className="field-label">Default agent model</span>
             <ModelSelect value={settings.agentModel} models={models} providers={providers} onChange={m => set({ agentModel: m })} />
             <span className="field-hint">Used for the multi-step agent (Chat / Ask folder). A strong tool-caller like <span className="mono">qwen2.5</span> reasons over retrieval better than Gemma, which can over-trust matched text. You can also switch per-chat from the model picker in the composer.</span>
+          </div>
+
+          <div className="field">
+            <span className="field-label">Embedding model</span>
+            <ModelSelect value={settings.embedModel} models={models} providers={providers} onChange={m => set({ embedModel: m })} />
+            <span className="field-hint">Builds the folder/document search index (RAG). Changing this re-embeds everything from scratch on next index — the old vectors aren't compatible with a different model, so nothing is mixed silently.</span>
+          </div>
+
+          <div className="field">
+            <span className="field-label">Rerank model <span className="ink-3">(optional)</span></span>
+            <ModelSelect value={settings.rerankModel} models={models} providers={providers} allowDefault defaultLabel="Off — embedding similarity only"
+              onChange={m => set({ rerankModel: m })} />
+            <span className="field-hint">A cross-encoder that re-scores the top search matches for precision, on top of embedding similarity. Best-effort: if the model errors or isn't pulled, search silently falls back to embedding-only ranking.</span>
           </div>
         </div>
 

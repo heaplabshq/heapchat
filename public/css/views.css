@@ -428,7 +428,7 @@
 .rb-imgs { margin: 6px 0 2px; }
 .rb-img-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .rb-img-wrap { position: relative; max-width: 300px; }
-.rb-img { display: block; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); line-height: 0; }
+.rb-img { display: block; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); line-height: 0; cursor: pointer; }
 .rb-img img { display: block; width: 100%; height: auto; }
 .rb-img-edit {
   position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 4px;

@@ -7,7 +7,7 @@
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
-const { DATA_DIR, OLLAMA_KEEP_ALIVE } = require("../config");
+const { DATA_DIR, OLLAMA_KEEP_ALIVE, OLLAMA_EMBED_MODEL } = require("../config");
 const ollamaConn = require("../llm/ollama-conn");
 const { writeJSONAtomic } = require("../util/json-store");
 const { extOf, kindOf, TEXTLIKE, isImageFile } = require("../util/files");
@@ -17,7 +17,7 @@ const { users } = require("../auth/accounts");
 const { canAccessPath } = require("../auth/access");
 const { extractText } = require("./extract");
 
-const EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || "nomic-embed-text:latest";
+const EMBED_MODEL = OLLAMA_EMBED_MODEL;   // server default; callers can pass a different model per index (see indexFiles)
 const INDEX_DIR = path.join(DATA_DIR, "index");
 const MAX_INDEX_FILES = 400;     // safety cap per folder tree
 const MAX_CHUNKS_PER_FILE = 60;
@@ -76,13 +76,13 @@ async function walkFiles(root, depth = 0, acc = []) {
   }
   return acc;
 }
-async function embed(inputs) {
+async function embed(inputs, model = EMBED_MODEL) {
   const out = [];
   for (let i = 0; i < inputs.length; i += 32) {
     const batch = inputs.slice(i, i + 32);
     const r = await fetch(`${ollamaConn.baseUrl()}/api/embed`, {
       method: "POST", headers: ollamaConn.headers(),
-      body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model: EMBED_MODEL, input: batch }),
+      body: JSON.stringify({ keep_alive: OLLAMA_KEEP_ALIVE, model, input: batch }),
     });
     if (!r.ok) throw new Error(`embed ${r.status}: ${await r.text().catch(() => "")}`);
     const j = await r.json();
@@ -90,10 +90,15 @@ async function embed(inputs) {
   }
   return out;
 }
-// core: index a specific set of files under `key`, re-embedding only changed ones
-async function indexFiles(key, filePaths) {
-  const prev = loadIndex(key) || { folder: key, files: {} };
-  const next = { folder: key, updatedAt: Date.now(), files: {} };
+// core: index a specific set of files under `key`, re-embedding only changed ones.
+// `model` lets a caller pick a non-default embedding model (per-user Settings override); if it
+// differs from whatever model built the existing index, ALL cached vectors are discarded — mixing
+// vectors from two different embedding spaces in one cosine comparison would be silently wrong,
+// not just stale, so a model change forces a full re-embed rather than an incremental one.
+async function indexFiles(key, filePaths, model = EMBED_MODEL) {
+  let prev = loadIndex(key) || { folder: key, files: {} };
+  if (prev.embedModel && prev.embedModel !== model) prev = { folder: key, files: {} };
+  const next = { folder: key, embedModel: model, updatedAt: Date.now(), files: {} };
   let embedded = 0, reused = 0, skipped = 0;
   for (const full of filePaths) {
     let st; try { st = await fsp.stat(full); } catch { continue; }
@@ -106,7 +111,7 @@ async function indexFiles(key, filePaths) {
     const chunks = chunkText(text);
     if (!chunks.length) { skipped++; continue; }
     let vecs;
-    try { vecs = await embed(chunks); } catch (e) { skipped++; continue; }
+    try { vecs = await embed(chunks, model); } catch (e) { skipped++; continue; }
     next.files[full] = { name: path.basename(full), mtime: st.mtimeMs, chunks: chunks.map((t, i) => ({ text: t, vec: vecs[i] })) };
     embedded++;
   }
@@ -117,7 +122,7 @@ async function indexFiles(key, filePaths) {
 // build/update the index for a whole folder (recursive), re-embedding only changed files.
 // The KB / main-chat corpus also includes every image the user has made searchable,
 // wherever it lives — so "Make searchable" on a folder image surfaces it in the main chat.
-async function buildIndex(folderPath) {
+async function buildIndex(folderPath, model = EMBED_MODEL) {
   const root = path.resolve(folderPath);
   let files = await walkFiles(root);
   if (isKbDir(root)) {
@@ -127,12 +132,12 @@ async function buildIndex(folderPath) {
       !p.startsWith(root + path.sep) && !p.startsWith(USERS_DIR + path.sep) && canAccessPath(owner, p) && fs.existsSync(p));
     files = [...files, ...externalImages];
   }
-  return indexFiles(root, files);
+  return indexFiles(root, files, model);
 }
 // index a single file (key = the file path)
-async function buildFileIndex(filePath) {
+async function buildFileIndex(filePath, model = EMBED_MODEL) {
   const f = path.resolve(filePath);
-  return indexFiles(f, [f]);
+  return indexFiles(f, [f], model);
 }
 // list the files currently in an index (recursive set), with light metadata
 function indexedFiles(key) {
