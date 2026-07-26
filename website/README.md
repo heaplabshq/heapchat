@@ -18,9 +18,10 @@ That second trigger isn't decoration. The download buttons point at
 so publishing a release without redeploying leaves the live site linking to the previous
 version's filenames, which no longer exist. The two have to move together.
 
-Requires one repo secret: `CLOUDFLARE_API_TOKEN`, with the "Cloudflare Pages — Edit"
-permission. No account ID is needed — wrangler resolves it from the token when the token
-maps to a single account, same as heapcode's site deploy.
+Requires two repo secrets: `CLOUDFLARE_API_TOKEN` (with the "Cloudflare Pages — Edit"
+permission) and `CLOUDFLARE_ACCOUNT_ID`. The account ID is given explicitly because
+letting wrangler discover it needs `User → Memberships → Read` on the token, which a
+Pages-scoped token doesn't carry.
 
 Cache and security headers live in `_headers` — Cloudflare Pages' format. (This folder
 previously carried a `netlify.toml`, left over from before the move to Cloudflare. It was

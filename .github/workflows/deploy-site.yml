@@ -3,9 +3,17 @@ name: Deploy site
 # Publishes website/ to Cloudflare Pages. Zero-build static folder — no install,
 # no bundler — so this is a plain upload.
 #
-# Setup: one repo secret, CLOUDFLARE_API_TOKEN, with the "Cloudflare Pages — Edit"
-# permission. No account ID needed: wrangler resolves it from the token as long as
-# the token maps to a single account (same as heapcode's site deploy).
+# Setup: two repo secrets.
+#   CLOUDFLARE_API_TOKEN    "Cloudflare Pages — Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID   dashboard → Workers & Pages → Account ID
+#
+# The account ID is passed explicitly rather than discovered. Without it wrangler
+# calls /memberships to work out which account to deploy to, which needs User →
+# Memberships → Read on the token — a permission a Pages-scoped token doesn't carry,
+# and the first deploy failed on exactly that ("Authentication error [code: 10000]").
+# heapcode's equivalent workflow gets away with token-only because its token is scoped
+# more broadly; naming the account here means this doesn't depend on how the token
+# happens to be scoped.
 
 on:
   # ordinary content edits
@@ -51,4 +59,5 @@ jobs:
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy website --project-name=heapchat --branch=main
