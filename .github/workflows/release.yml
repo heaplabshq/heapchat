@@ -1,0 +1,76 @@
+name: Release
+
+# Builds the desktop installers on a version tag and uploads them to the GitHub
+# release. Windows is the real reason this exists: electron-builder can't produce
+# a proper NSIS installer from macOS, so Windows builds are only practical here.
+#
+# Usage:
+#   1. bump "version" in package.json, commit, merge to main
+#   2. git tag v1.1.0 && git push origin v1.1.0
+#   3. electron-builder uploads to a DRAFT release — review the assets, then publish
+#
+# SIGNING: these builds are unsigned. macOS users get a Gatekeeper warning
+# (right-click → Open), Windows users get SmartScreen. More importantly,
+# electron-updater will NOT apply updates to an unsigned macOS app, so
+# auto-update stays inert until a Developer ID cert is added as a secret.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:   # lets you re-run a failed platform without re-tagging
+
+permissions:
+  contents: write   # electron-builder uploads installers to the release
+
+jobs:
+  dist:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false   # a Windows failure shouldn't throw away a finished macOS build
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS (arm64 + x64)
+            flag: --mac
+          - os: windows-latest
+            name: Windows (x64)
+            flag: --win
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # electron-builder names artifacts and writes the electron-updater feed from
+      # package.json's version, NOT from the tag. A mismatch produces a release whose
+      # assets claim a different version than the tag they hang off — fail loudly instead.
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag v$tag does not match package.json version $pkg — bump the version before tagging"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # `npm run dist` would run this via predist, but we call electron-builder
+      # directly below to pass the per-platform flag, which skips the pre-script.
+      - name: Build UI bundle
+        run: npm run build:ui
+
+      - name: Build and publish installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # There's no signing certificate in CI. Without this, electron-builder
+          # searches an empty keychain and can fail the build outright rather than
+          # falling back to producing an unsigned app. See the SIGNING note above.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder ${{ matrix.flag }} --publish always
