@@ -61,3 +61,15 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy website --project-name=heapchat --branch=main
+
+      # A failed deploy reports the same "Authentication error [code: 10000]" whether the
+      # project name is wrong or the token can't see Pages at all, which is not enough to
+      # act on. Listing the projects separates the two: a list means the name is wrong and
+      # the real ones are right there; another auth error means it's the token's permissions.
+      - name: Diagnose failure
+        if: failure()
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project list
