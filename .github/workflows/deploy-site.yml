@@ -1,12 +1,11 @@
 name: Deploy site
 
-# Publishes website/ to Cloudflare Pages. The site is a zero-build static folder —
-# no npm install, no bundler — so this is a plain upload.
+# Publishes website/ to Cloudflare Pages. Zero-build static folder — no install,
+# no bundler — so this is a plain upload.
 #
-# Setup (one time):
-#   Repo secret    CLOUDFLARE_API_TOKEN     token with the "Cloudflare Pages — Edit" permission
-#   Repo secret    CLOUDFLARE_ACCOUNT_ID    Cloudflare dashboard → Workers & Pages → Account ID
-#   Repo variable  CF_PAGES_PROJECT         the Pages project name (not the domain)
+# Setup: one repo secret, CLOUDFLARE_API_TOKEN, with the "Cloudflare Pages — Edit"
+# permission. No account ID needed: wrangler resolves it from the token as long as
+# the token maps to a single account (same as heapcode's site deploy).
 
 on:
   # ordinary content edits
@@ -24,10 +23,11 @@ on:
   release:
     types: [published]
 
+  # lets a stale site be redeployed without an empty commit
   workflow_dispatch:
 
-# One deploy at a time. cancel-in-progress stays false deliberately: an upload that's
-# already talking to Cloudflare should finish rather than leave a half-published state.
+# One deploy at a time. cancel-in-progress stays false deliberately: an upload already
+# talking to Cloudflare should finish rather than leave a half-published state.
 concurrency:
   group: deploy-site
   cancel-in-progress: false
@@ -37,28 +37,18 @@ jobs:
     name: Cloudflare Pages
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
-      # Fail with an explanation rather than letting wrangler error out on an empty
-      # --project-name, which reads as a wrangler bug rather than missing config.
-      - name: Check deploy config is present
-        run: |
-          missing=""
-          [ -n "${{ vars.CF_PAGES_PROJECT }}" ]        || missing="$missing CF_PAGES_PROJECT(variable)"
-          [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] || missing="$missing CLOUDFLARE_API_TOKEN(secret)"
-          [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID(secret)"
-          if [ -n "$missing" ]; then
-            echo "Missing repo config:$missing"
-            echo "See the setup comment at the top of .github/workflows/deploy-site.yml"
-            exit 1
-          fi
-
-      # --branch is what tells Pages this is a production deploy rather than a preview;
-      # it has to match the project's configured production branch.
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+      # No `if: secrets... != ''` guard, matching heapcode's reasoning: a guard that
+      # SKIPS on a missing token makes the run look green while nothing deployed. A
+      # missing token should fail loudly here instead.
+      #
+      # --branch is what marks this a production deploy rather than a preview; it has
+      # to match the Pages project's configured production branch.
+      - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy website --project-name=${{ vars.CF_PAGES_PROJECT }} --branch=main
+          command: pages deploy website --project-name=heapchat --branch=main
