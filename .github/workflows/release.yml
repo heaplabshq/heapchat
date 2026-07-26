@@ -38,11 +38,11 @@ jobs:
             name: Windows (x64)
             flag: --win
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       # electron-builder names artifacts and writes the electron-updater feed from
